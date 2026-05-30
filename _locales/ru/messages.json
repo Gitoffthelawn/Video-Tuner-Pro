@@ -1,0 +1,25 @@
+{
+  "extName": { "message": "Video Speed Controller Pro" },
+  "extDescription": { "message": "Управление скоростью видео на любом сайте: пресеты, проценты и умная синхронизация прямых эфиров." },
+  "pageTitle": { "message": "Video Speed Controller" },
+  "appHeader": { "message": "🎬 Скорость видео" },
+  "loading": { "message": "Загрузка…" },
+  "speedSuffix": { "message": "x скорость" },
+  "resetButton": { "message": "Сбросить (100%)" },
+  "rememberButton": { "message": "Запомнить сайт" },
+  "savedFeedback": { "message": "✓ Сохранено" },
+  "noVideo": { "message": "На странице не найдено видео — откройте видео и обновите." },
+  "liveNote": { "message": "🔴 Прямой эфир: ручная скорость не применяется — стрим идёт на 100%, пока не нужно догонять. Скоростью управляет Live-sync." },
+  "syncTitle": { "message": "🔴 Поддерживать стрим актуальным" },
+  "syncSubtitle": { "message": "Автоматически догонять прямой эфир" },
+  "allowedDelay": { "message": "Допустимое отставание" },
+  "secondsShort": { "message": "c" },
+  "maxCatchupSpeed": { "message": "Максимальная скорость догона" },
+  "syncHint": { "message": "Если эфир отстаёт больше указанного значения, скорость плавно повышается (до максимума) и возвращается к 100%, как только догнали. Учитывается буфер — ускорение не включается, если данных впереди мало." },
+  "indicatorLive": { "message": "🔴 Эфир — 100%" },
+  "indicatorCatchup": {
+    "message": "🔴 Live-sync — $pct$% (догоняем)",
+    "placeholders": { "pct": { "content": "$1" } }
+  },
+  "indicatorSynced": { "message": "🔴 Live-sync — 100%" }
+}

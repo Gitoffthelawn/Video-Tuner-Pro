@@ -1,0 +1,109 @@
+name: Publish extension
+
+# Publishes to the Chrome Web Store and Firefox Add-ons (AMO).
+# Triggered by publishing a GitHub Release, or manually from the Actions tab.
+# The published version is whatever is set in manifest.json — bump it before releasing.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & validate package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate JSON and JS
+        run: |
+          node --check content.js
+          node --check popup/popup.js
+          for f in manifest.json _locales/*/messages.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || { echo "Invalid JSON: $f"; exit 1; }
+          done
+          # Every locale must define the same keys as the English base.
+          node -e '
+            const fs = require("fs");
+            const base = Object.keys(JSON.parse(fs.readFileSync("_locales/en/messages.json"))).sort();
+            for (const d of fs.readdirSync("_locales")) {
+              const k = Object.keys(JSON.parse(fs.readFileSync("_locales/" + d + "/messages.json"))).sort();
+              const miss = base.filter((x) => !k.includes(x));
+              if (miss.length) { console.error(d + " missing keys: " + miss.join(", ")); process.exit(1); }
+            }
+            console.log("All locales consistent");
+          '
+
+      - name: Assemble shippable files
+        run: |
+          mkdir -p dist
+          cp manifest.json content.js dist/
+          cp -r popup icons _locales dist/
+
+      - name: Build Chrome zip (without Firefox-only keys)
+        run: |
+          mkdir -p chrome-build
+          cp -r dist/. chrome-build/
+          jq 'del(.browser_specific_settings)' dist/manifest.json > chrome-build/manifest.json
+          cd chrome-build && zip -rq ../chrome.zip . && cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-zip
+          path: chrome.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firefox-src
+          path: dist/
+
+  chrome:
+    name: Publish to Chrome Web Store
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: chrome-zip
+
+      - name: Upload & publish
+        uses: mnao305/chrome-extension-upload@v5
+        with:
+          file-path: chrome.zip
+          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          publish: true
+
+  firefox:
+    name: Publish to Firefox Add-ons
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firefox-src
+          path: dist
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sign & submit to AMO (listed channel)
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx --yes web-ext@latest sign \
+            --source-dir dist \
+            --channel listed \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"
