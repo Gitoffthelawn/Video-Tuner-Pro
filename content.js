@@ -103,12 +103,30 @@ function droppedFramesDelta(video) {
   } catch (e) { return 0; }
 }
 
+// Collect every <video> on the page, piercing OPEN shadow roots. Some players
+// (e.g. Boosty) render the <video> inside a shadow DOM, where a plain
+// document.querySelectorAll("video") can't reach it.
+function collectVideos() {
+  const acc = [];
+  const seen = new Set();
+  const scan = (root) => {
+    let vids;
+    try { vids = root.querySelectorAll("video"); } catch (e) { return; }
+    for (const v of vids) { if (!seen.has(v)) { seen.add(v); acc.push(v); } }
+    let all;
+    try { all = root.querySelectorAll("*"); } catch (e) { return; }
+    for (const el of all) { if (el.shadowRoot) scan(el.shadowRoot); }
+  };
+  scan(document);
+  return acc;
+}
+
 // Pick the main live <video>: prefer the one that's actually playing and largest,
 // so tiny preview/ad players don't make detection flicker on/off.
 function liveVideo() {
   let best = null;
   let bestScore = -1;
-  for (const v of document.querySelectorAll("video")) {
+  for (const v of collectVideos()) {
     if (!isLive(v)) continue;
     const r = v.getBoundingClientRect();
     const score = (v.paused ? 0 : 1e9) + r.width * r.height;
@@ -247,7 +265,7 @@ function applyToVideo(video) {
 }
 
 function applyAll() {
-  document.querySelectorAll("video").forEach(applyToVideo);
+  collectVideos().forEach(applyToVideo);
 }
 
 function setSpeed(speed, persist, manual) {
@@ -287,8 +305,9 @@ function showIndicator(text) {
 // --- Init ------------------------------------------------------------------
 loadSpeed();
 
-// Steady background tick so live-sync works even when timeupdate is sparse.
-liveTick = setInterval(controlLive, 1000);
+// Steady background tick: re-apply speed (catches videos created inside shadow
+// roots, where document mutations don't fire) and drive live-sync.
+liveTick = setInterval(() => { applyAll(); controlLive(); }, 1000);
 
 // Watch for videos added later (SPA navigation, lazy players). Chat-heavy pages
 // (Twitch) mutate constantly, so coalesce a burst into a single rAF pass rather
