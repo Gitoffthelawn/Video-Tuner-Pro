@@ -278,6 +278,7 @@ function applyAll() {
 // silent so it can't clobber another frame's icon.
 let lastBadge = null;
 let badgeHadVideo = false;
+let badgeUrl = location.href;
 function speedLabel(s) {
   // Round to 2 decimals, but always keep at least one decimal: 1 -> "1.0",
   // 2 -> "2.0", 1.5 -> "1.5", 1.75 -> "1.75".
@@ -286,12 +287,18 @@ function speedLabel(s) {
   return str;
 }
 function updateBadge() {
+  // SPA navigation (YouTube etc.) changes the URL without reloading the content
+  // script, so the dedupe cache below would suppress the re-send. Reset it on URL
+  // change so the icon is re-asserted for the new page.
+  const urlChanged = location.href !== badgeUrl;
+  if (urlChanged) { badgeUrl = location.href; lastBadge = null; }
+
   const hasVideo = collectVideos().length > 0;
   let payload;
   if (hasVideo) {
     payload = { action: "icon", text: speedLabel(currentSpeed), live: onStreamPage() };
-  } else if (badgeHadVideo) {
-    payload = { action: "icon", clear: true }; // had a video, now gone
+  } else if (badgeHadVideo || urlChanged) {
+    payload = { action: "icon", clear: true }; // had a video / navigated away
   } else {
     return;                                    // never had one — leave the icon alone
   }
@@ -381,17 +388,34 @@ api.storage.onChanged.addListener((changes, area) => {
 });
 
 // --- Popup messages --------------------------------------------------------
+// The popup messages the whole tab (all frames). To avoid an ad/util iframe
+// answering first with the wrong state (e.g. YouTube), only the frame that holds
+// the video replies; the top frame replies as a slightly-deferred fallback so a
+// video-bearing subframe can win.
+function replyFromVideoFrame(sendResponse, build) {
+  const hasVid = collectVideos().length > 0;
+  const reply = () => { try { sendResponse(build()); } catch (e) {} };
+  if (hasVid) { reply(); return true; }
+  if (window.top === window) { setTimeout(reply, 60); return true; }
+  return false; // subframe without a video stays silent
+}
+
 api.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "setSpeed") {
-    // Apply for this tab session only; persistence happens via "rememberSite".
+    // Every frame applies it; only the video frame answers.
     setSpeed(request.speed, false, true);
-    sendResponse({ success: true, speed: currentSpeed, live: onStreamPage() });
-  } else if (request.action === "rememberSite") {
+    return replyFromVideoFrame(sendResponse,
+      () => ({ success: true, speed: currentSpeed, live: onStreamPage() }));
+  }
+  if (request.action === "rememberSite") {
     const speed = typeof request.speed === "number" ? clamp(request.speed) : currentSpeed;
     persistDomainSpeed(speed);
     sendResponse({ success: true, speed });
-  } else if (request.action === "getSpeed") {
-    sendResponse({ speed: currentSpeed, domain: getDomain(), live: onStreamPage() });
+    return true;
   }
-  return true;
+  if (request.action === "getSpeed") {
+    return replyFromVideoFrame(sendResponse,
+      () => ({ speed: currentSpeed, domain: getDomain(), live: onStreamPage() }));
+  }
+  return false;
 });
