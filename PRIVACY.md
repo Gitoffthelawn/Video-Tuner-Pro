@@ -1,8 +1,8 @@
-# Privacy Policy — Video Speed Controller Pro
+# Privacy Policy — Video Tuner Pro
 
 _Last updated: 2026-05-30_
 
-Video Speed Controller Pro ("the extension") is designed with privacy as a
+Video Tuner Pro ("the extension") is designed with privacy as a
 priority. This policy explains what the extension does and does not do with
 your information.
 

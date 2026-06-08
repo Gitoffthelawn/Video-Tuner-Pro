@@ -1,7 +1,7 @@
 {
   "extName": { "message": "Video Tuner Pro" },
   "extDescription": { "message": "A toolkit for better video on any site: playback speed, smart live-stream sync, and audio compression to even out loud and quiet sounds." },
-  "pageTitle": { "message": "Video Speed Controller" },
+  "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Loading…" },
   "speedSuffix": { "message": "x speed" },
@@ -24,11 +24,8 @@
   "indicatorSynced": { "message": "Live-sync — 100%" },
   "audioTitle": { "message": "Audio compression" },
   "audioSubtitle": { "message": "Even out loud and quiet sounds" },
-  "audioAmount": { "message": "Strength" },
   "audioGain": { "message": "Make-up gain" },
   "audioHint": { "message": "Boosts quiet parts and tames loud ones; make-up gain lifts the overall level. Won't work on sites that serve video cross-origin without CORS — the browser mutes Web Audio there." },
-  "audioModeSimple": { "message": "Simple" },
-  "audioModeAdvanced": { "message": "Advanced" },
   "audioThreshold": { "message": "Threshold" },
   "audioThresholdDesc": { "message": "Level above which compression starts." },
   "audioKnee": { "message": "Knee" },
@@ -50,7 +47,5 @@
   "meterThr": { "message": "Threshold" },
   "meterBuffer": { "message": "Buffer" },
   "meterTargetMark": { "message": "Target" },
-  "graphsTitle": { "message": "Graphs" },
-  "graphsSubtitle": { "message": "Live audio levels and buffer" },
   "bufferLiveOnly": { "message": "Live streams only" }
 }

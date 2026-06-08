@@ -54,21 +54,21 @@ jobs:
       - name: Build Firefox package (gecko keys; background as event-page scripts)
         run: |
           jq '.background = {"scripts":["background.js"]}' manifest.json > dist/manifest.json
-          cd dist && zip -rq "../video-speed-controller-pro-firefox-v${{ steps.meta.outputs.version }}.zip" . && cd ..
+          cd dist && zip -rq "../video-tuner-pro-firefox-v${{ steps.meta.outputs.version }}.zip" . && cd ..
 
       - name: Build Chrome package (Firefox-only keys stripped; background as service worker)
         run: |
           jq 'del(.browser_specific_settings) | .background = {"service_worker":"background.js"}' manifest.json > dist/manifest.json
-          cd dist && zip -rq "../video-speed-controller-pro-chrome-v${{ steps.meta.outputs.version }}.zip" . && cd ..
+          cd dist && zip -rq "../video-tuner-pro-chrome-v${{ steps.meta.outputs.version }}.zip" . && cd ..
 
       - name: Upload packages as workflow artifacts
         uses: actions/upload-artifact@v7
         with:
           name: extension-packages
-          path: video-speed-controller-pro-*.zip
+          path: video-tuner-pro-*.zip
 
       - name: Attach packages to the release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" video-speed-controller-pro-*.zip --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" video-tuner-pro-*.zip --clobber
