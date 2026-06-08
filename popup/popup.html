@@ -7,24 +7,61 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            width: 350px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 14px;
-            color: #333;
+        /* ===== Theme tokens — Native (macOS/iOS) palette ===== */
+        :root {
+            --bg: #ececec;
+            --surface: #ffffff;
+            --text: #1d1d1f;
+            --muted: #86868b;
+            --accent: #0a84ff;
+            --seg: #f0f0f2;
+            --track: #d8d8dc;
+            --switch-on: #34c759;
+            --shadow: rgba(0,0,0,0.18);
+            --note-bg: #f6f1e7;
+            --note-line: #e7dcc4;
+            --note-text: #6b5b32;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1c1c1e;
+                --surface: #2c2c2e;
+                --text: #f5f5f7;
+                --muted: #8e8e93;
+                --accent: #0a84ff;
+                --seg: #3a3a3c;
+                --track: #48484a;
+                --switch-on: #30d158;
+                --shadow: rgba(0,0,0,0.4);
+                --note-bg: #2e2a1f;
+                --note-line: #4a432f;
+                --note-text: #d8c89a;
+            }
         }
 
-        .header { color: white; margin-bottom: 12px; text-align: center; }
-        .header h1 { font-size: 18px; margin-bottom: 5px; }
-        .current-domain { font-size: 12px; opacity: 0.9; word-break: break-all; }
+        body {
+            width: 340px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 12px;
+        }
+
+        .header {
+            display: flex; align-items: baseline; justify-content: space-between;
+            padding: 0 2px 10px;
+        }
+        .header h1 { font-size: 13px; font-weight: 600; }
+        .current-domain {
+            font-size: 11px; color: var(--muted);
+            max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
 
         .speed-section {
-            background: white;
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: var(--surface);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
         }
 
         /* When a live stream is detected, manual speed controls are disabled. */
@@ -36,81 +73,87 @@
             filter: grayscale(0.3);
         }
 
-        .speed-display { text-align: center; margin-bottom: 12px; }
-        .speed-value { font-size: 30px; font-weight: bold; color: #667eea; line-height: 1.1; }
-        .speed-sub { color: #999; font-size: 12px; margin-top: 3px; }
+        .speed-display {
+            display: flex; align-items: baseline; justify-content: center; gap: 6px;
+            margin-bottom: 10px;
+        }
+        .speed-value { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+        .speed-sub { color: var(--muted); font-size: 12px; }
 
         .speed-slider {
-            width: 100%; height: 6px; border-radius: 3px; background: #ddd;
-            outline: none; -webkit-appearance: none; appearance: none; margin: 6px 0 12px;
+            width: 100%; height: 4px; border-radius: 2px; background: var(--track);
+            outline: none; -webkit-appearance: none; appearance: none; margin: 0 0 12px;
         }
         .speed-slider::-webkit-slider-thumb {
             -webkit-appearance: none; appearance: none; width: 18px; height: 18px;
-            border-radius: 50%; background: #667eea; cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            border-radius: 50%; background: #fff; cursor: pointer;
+            box-shadow: 0 1px 3px var(--shadow);
         }
         .speed-slider::-moz-range-thumb {
-            width: 18px; height: 18px; border-radius: 50%; background: #667eea;
-            cursor: pointer; border: none; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            width: 18px; height: 18px; border-radius: 50%; background: #fff;
+            cursor: pointer; border: none; box-shadow: 0 1px 3px var(--shadow);
         }
 
+        /* Segmented control for preset speeds */
         .buttons-grid {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+            background: var(--seg); border-radius: 8px; padding: 2px; margin-bottom: 10px;
         }
         .btn-speed {
-            padding: 8px 0; border: 2px solid #667eea; background: white; border-radius: 6px;
-            cursor: pointer; font-weight: 600; font-size: 12px; transition: all 0.15s; color: #667eea;
+            padding: 6px 0; border: none; background: transparent; border-radius: 6px;
+            cursor: pointer; font-weight: 500; font-size: 12px; color: var(--text);
+            transition: background 0.12s;
         }
-        .btn-speed:hover { background: #f0f0f0; }
-        .btn-speed.active { background: #667eea; color: white; }
+        .btn-speed:hover { background: rgba(127,127,127,0.12); }
+        .btn-speed.active {
+            background: var(--surface); font-weight: 600;
+            box-shadow: 0 1px 2px var(--shadow);
+        }
 
-        .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
         .btn-action {
-            padding: 10px; border: none; border-radius: 6px; cursor: pointer;
-            font-size: 12px; font-weight: 600; transition: all 0.15s;
+            padding: 9px; border: none; border-radius: 8px; cursor: pointer;
+            font-size: 12px; font-weight: 500; color: var(--text); transition: filter 0.12s;
         }
-        .btn-reset { background: #f5f5f5; color: #333; }
-        .btn-reset:hover { background: #e0e0e0; }
-        .btn-default { background: #764ba2; color: white; }
-        .btn-default:hover { background: #673a91; }
+        .btn-reset { background: var(--seg); }
+        .btn-reset:hover { filter: brightness(0.96); }
+        .btn-default { background: var(--accent); color: #fff; font-weight: 600; }
+        .btn-default:hover { filter: brightness(1.05); }
 
         .no-video {
-            display: none; margin-top: 10px; font-size: 11px; color: #b34; text-align: center;
+            display: none; margin-top: 10px; font-size: 11px; color: var(--muted); text-align: center;
         }
         .live-note {
-            display: none; margin-top: 10px; font-size: 11px; color: #444;
-            background: #fff3f3; border: 1px solid #f3c9c9; border-radius: 8px;
+            display: none; margin-top: 10px; font-size: 11px; color: var(--note-text);
+            background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 8px;
             padding: 8px 10px; line-height: 1.4;
         }
 
         .sync-section {
-            background: white; border-radius: 12px; padding: 14px;
-            margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: var(--surface); border-radius: 10px; padding: 12px; margin-bottom: 2px;
         }
-        .switch-row {
-            display: flex; align-items: center; gap: 10px; cursor: pointer;
-        }
+        .switch-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
         .switch-text { flex: 1; display: flex; flex-direction: column; }
-        .switch-text strong { font-size: 13px; color: #333; }
-        .switch-sub { font-size: 11px; color: #999; margin-top: 2px; }
+        .switch-text strong { font-size: 12px; font-weight: 600; color: var(--text); }
+        .switch-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
         .switch-input { position: absolute; opacity: 0; width: 0; height: 0; }
         .switch-track {
-            position: relative; width: 42px; height: 24px; flex: 0 0 auto;
-            background: #ccc; border-radius: 12px; transition: background 0.2s;
+            position: relative; width: 40px; height: 24px; flex: 0 0 auto;
+            background: var(--track); border-radius: 12px; transition: background 0.2s;
         }
         .switch-knob {
-            position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
-            background: white; border-radius: 50%; transition: transform 0.2s;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+            background: #fff; border-radius: 50%; transition: transform 0.2s;
+            box-shadow: 0 1px 2px var(--shadow);
         }
-        .switch-input:checked + .switch-track { background: #667eea; }
-        .switch-input:checked + .switch-track .switch-knob { transform: translateX(18px); }
+        .switch-input:checked + .switch-track { background: var(--switch-on); }
+        .switch-input:checked + .switch-track .switch-knob { transform: translateX(16px); }
 
-        .sync-body { margin-top: 10px; opacity: 0.45; pointer-events: none; transition: opacity 0.2s; }
+        .sync-body { margin-top: 12px; opacity: 0.45; pointer-events: none; transition: opacity 0.2s; }
         .sync-body.enabled { opacity: 1; pointer-events: auto; }
-        .sync-label { font-size: 12px; color: #555; margin-bottom: 4px; }
-        .sync-label b { color: #667eea; }
-        .sync-hint { font-size: 11px; color: #888; line-height: 1.5; margin-top: 4px; }
+        .sync-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+        .sync-label b { color: var(--text); }
+        .sync-hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -122,7 +165,6 @@
     <div class="speed-section">
         <div class="speed-display">
             <div class="speed-value" id="speedValue">100%</div>
-            <div class="speed-sub" id="speedSub">1.00x speed</div>
         </div>
 
         <input type="range" class="speed-slider" id="speedSlider" min="25" max="300" step="5" value="100">

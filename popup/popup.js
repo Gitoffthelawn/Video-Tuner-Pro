@@ -34,7 +34,6 @@ function getActiveTab() {
 function updateUI(speed) {
   const percent = Math.round(speed * 100);
   document.getElementById("speedValue").textContent = percent + "%";
-  document.getElementById("speedSub").textContent = speed.toFixed(2) + msg("speedSuffix");
   document.getElementById("currentSpeedPct").textContent = percent + "%";
 
   const slider = document.getElementById("speedSlider");

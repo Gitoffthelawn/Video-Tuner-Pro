@@ -32,7 +32,7 @@ api.runtime.onMessage.addListener((msg, sender) => {
   if (msg.clear) { reset(tabId); return; }
   try {
     api.action.setBadgeText({ text: msg.text || "", tabId });
-    api.action.setBadgeBackgroundColor({ color: "#667eea", tabId });
+    api.action.setBadgeBackgroundColor({ color: "#0a84ff", tabId });
     if (api.action.setBadgeTextColor) {
       api.action.setBadgeTextColor({ color: "#ffffff", tabId });
     }
