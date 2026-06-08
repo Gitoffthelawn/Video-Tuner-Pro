@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Contrôlez la vitesse de lecture des vidéos sur n'importe quel site : préréglages, pourcentages et synchronisation intelligente des directs." },
+  "extDescription": { "message": "Réglez chaque vidéo : vitesse de lecture, live-sync intelligent et compression audio pour égaliser le volume." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Chargement…" },

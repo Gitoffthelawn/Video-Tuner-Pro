@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "A toolkit for better video on any site: playback speed, smart live-stream sync, and audio compression to even out loud and quiet sounds." },
+  "extDescription": { "message": "Tune any video: playback speed, smart live-stream sync and audio compression that evens out loud and quiet sounds." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Loading…" },
