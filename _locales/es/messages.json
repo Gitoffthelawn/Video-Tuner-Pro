@@ -47,5 +47,6 @@
   "meterThr": { "message": "Umbral" },
   "meterBuffer": { "message": "Búfer" },
   "meterTargetMark": { "message": "Objetivo" },
-  "bufferLiveOnly": { "message": "Solo en directos" }
+  "bufferLiveOnly": { "message": "Solo en directos" },
+  "onVideoLabel": { "message": "Mostrar velocidad y tiempo en el vídeo" }
 }

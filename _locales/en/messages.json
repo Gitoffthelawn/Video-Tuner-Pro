@@ -47,5 +47,6 @@
   "meterThr": { "message": "Threshold" },
   "meterBuffer": { "message": "Buffer" },
   "meterTargetMark": { "message": "Target" },
-  "bufferLiveOnly": { "message": "Live streams only" }
+  "bufferLiveOnly": { "message": "Live streams only" },
+  "onVideoLabel": { "message": "Show speed & time on video" }
 }

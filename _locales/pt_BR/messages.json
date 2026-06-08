@@ -47,5 +47,6 @@
   "meterThr": { "message": "Limiar" },
   "meterBuffer": { "message": "Buffer" },
   "meterTargetMark": { "message": "Alvo" },
-  "bufferLiveOnly": { "message": "Apenas em transmissões ao vivo" }
+  "bufferLiveOnly": { "message": "Apenas em transmissões ao vivo" },
+  "onVideoLabel": { "message": "Mostrar velocidade e tempo no vídeo" }
 }

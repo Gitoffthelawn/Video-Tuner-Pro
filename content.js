@@ -26,6 +26,7 @@ let lastSyncPct = -1;
 let liveSeenAt = 0;               // timestamp of the last live <video> we saw (sticky detection)
 let lastDropped = 0;              // dropped-frame counter from the previous tick
 let liveTick = null;             // handle for the background interval, so we can stop it
+let showRemaining = false;        // on-video badge: speed + real remaining time
 const seenVideos = new WeakSet();
 
 // --- Audio compression (Web Audio) ---
@@ -449,9 +450,10 @@ function loadSpeed() {
   STORE.get(
     ["domains", "liveSync", "liveSyncTarget", "liveSyncMax",
      "audioComp", "audioCompThreshold", "audioCompKnee", "audioCompRatio",
-     "audioCompAttack", "audioCompRelease", "audioCompGain"],
+     "audioCompAttack", "audioCompRelease", "audioCompGain", "showRemaining"],
     (result) => {
       const domains = result.domains || {};
+      showRemaining = !!result.showRemaining;
       liveSyncEnabled = !!result.liveSync;
       liveSyncTarget = clampTarget(result.liveSyncTarget != null ? result.liveSyncTarget : 3);
       liveSyncMax = clampMax(result.liveSyncMax != null ? result.liveSyncMax : 1.5);
@@ -467,6 +469,7 @@ function loadSpeed() {
       applyAll();
       // A live stream never inherits a saved speed — sync (or 100%) takes over.
       controlLive();
+      updateTimeBadge();
     }
   );
 }
@@ -566,6 +569,7 @@ function setSpeed(speed, persist, manual) {
   applyAll();
   if (persist) persistDomainSpeed(currentSpeed);
   showIndicator();
+  updateTimeBadge(); flashBadge();
 }
 
 // --- Transient on-screen feedback (minimal pill, overlaid on the video) -----
@@ -625,6 +629,101 @@ function showIndicator(text) {
   }, 1200);
 }
 
+// --- On-video badge: speed + real remaining time (optional) ----------------
+function fmtTime(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+// Parse a "H:MM:SS" / "MM:SS" clock (SponsorBlock's text is like "(1:54:13)").
+function parseClock(t) {
+  const m = String(t).match(/(\d+):(\d{2})(?::(\d{2}))?/);
+  if (!m) return 0;
+  return m[3] != null ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : (+m[1]) * 60 + (+m[2]);
+}
+
+// Effective content duration. SponsorBlock, when its "show duration after skips"
+// option is on, injects #sponsorBlockDurationAfterSkips with the real length —
+// already reflecting the user's own skip categories. Use it when present; we can't
+// read another extension's settings, so without it we fall back to the full length.
+function effectiveDuration(video) {
+  try {
+    const el = document.getElementById("sponsorBlockDurationAfterSkips");
+    if (el) { const s = parseClock(el.textContent); if (s > 0) return s; }
+  } catch (e) { /* ignore */ }
+  return video.duration;
+}
+
+let timeBadgeEl = null;
+let timeBadgeHideTimer = null;
+let badgeVideo = null;          // cached primary video so mousemove stays cheap
+let badgeMoveHooked = false;
+
+function renderBadge(v) {
+  const r = v.getBoundingClientRect();
+  timeBadgeEl.style.left = Math.round(r.left + Math.max(10, r.width * 0.012)) + "px";
+  timeBadgeEl.style.top = Math.round(r.top + Math.max(10, r.height * 0.04)) + "px";
+  const speed = v.playbackRate || currentSpeed || 1;
+  const dur = v.duration;
+  const eff = effectiveDuration(v); // SponsorBlock real length, or full length
+  const frac = dur > 0 ? Math.min(1, v.currentTime / dur) : 0;
+  const remain = Math.max(0, eff * (1 - frac)) / speed;
+  const sp = Math.round(speed * 100) / 100;
+  timeBadgeEl.textContent = `${sp}× · ${fmtTime(remain)}`;
+}
+
+// Show the badge briefly, then fade it out — like player controls.
+function flashBadge() {
+  if (!timeBadgeEl || timeBadgeEl.style.display === "none") return;
+  timeBadgeEl.style.opacity = "1";
+  clearTimeout(timeBadgeHideTimer);
+  timeBadgeHideTimer = setTimeout(() => { if (timeBadgeEl) timeBadgeEl.style.opacity = "0"; }, 2600);
+}
+
+function hookBadgeMouse() {
+  if (badgeMoveHooked) return;
+  badgeMoveHooked = true;
+  document.addEventListener("mousemove", (e) => {
+    if (!showRemaining || !timeBadgeEl || !badgeVideo) return;
+    const r = badgeVideo.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    renderBadge(badgeVideo);
+    flashBadge();
+  }, { passive: true });
+}
+
+// Keep the badge's content/position fresh (called every tick). Visibility itself
+// is driven by mouse movement (flashBadge), so it only appears when you move over
+// the video and auto-hides after a moment.
+function updateTimeBadge() {
+  if (!showRemaining) { if (timeBadgeEl) timeBadgeEl.style.display = "none"; badgeVideo = null; return; }
+  const v = primaryVideo();
+  if (!v || !isFinite(v.duration) || v.duration <= 0 || onStreamPage()) {
+    if (timeBadgeEl) timeBadgeEl.style.display = "none";
+    badgeVideo = null;
+    return;
+  }
+  badgeVideo = v;
+  hookBadgeMouse();
+  if (!timeBadgeEl) {
+    timeBadgeEl = document.createElement("div");
+    timeBadgeEl.style.cssText = [
+      "position:fixed", "z-index:2147483646", "pointer-events:none",
+      "font:600 12px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+      "color:#fff", "background:rgba(0,0,0,0.55)", "padding:5px 9px",
+      "border-radius:6px", "white-space:nowrap", "opacity:0", "transition:opacity .25s",
+      "-webkit-backdrop-filter:blur(3px)", "backdrop-filter:blur(3px)"
+    ].join(";");
+  }
+  const fsEl = document.fullscreenElement;
+  const host = (fsEl && fsEl.tagName !== "VIDEO") ? fsEl : document.body;
+  if (timeBadgeEl.parentNode !== host) host.appendChild(timeBadgeEl);
+  timeBadgeEl.style.display = "block";
+  renderBadge(v);
+}
+
 // After the user flips the audio toggle, the graph may not engage on the very
 // first try (src still loading, context suspended, player swapping the <video>).
 // Poll briefly so we report the real outcome instead of a transient "unavailable".
@@ -647,7 +746,7 @@ loadSpeed();
 
 // Steady background tick: re-apply speed (catches videos created inside shadow
 // roots, where document mutations don't fire) and drive live-sync.
-liveTick = setInterval(() => { applyAll(); controlLive(); }, 1000);
+liveTick = setInterval(() => { applyAll(); controlLive(); updateTimeBadge(); }, 1000);
 
 // Watch for videos added later (SPA navigation, lazy players). Chat-heavy pages
 // (Twitch) mutate constantly, so coalesce a burst into a single rAF pass rather
@@ -683,6 +782,7 @@ api.storage.onChanged.addListener((changes, area) => {
     lastSyncPct = -1;
     controlLive();
   }
+  if (changes.showRemaining) { showRemaining = !!changes.showRemaining.newValue; updateTimeBadge(); flashBadge(); }
   let audioChanged = false;
   if (changes.audioComp) { audioCompEnabled = !!changes.audioComp.newValue; audioChanged = true; }
   if (changes.audioCompThreshold) { audioCompThreshold = clampNum(changes.audioCompThreshold.newValue, -100, 0, -50); audioChanged = true; }

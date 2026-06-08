@@ -47,5 +47,6 @@
   "meterThr": { "message": "スレッショルド" },
   "meterBuffer": { "message": "バッファ" },
   "meterTargetMark": { "message": "目標" },
-  "bufferLiveOnly": { "message": "ライブ配信のみ" }
+  "bufferLiveOnly": { "message": "ライブ配信のみ" },
+  "onVideoLabel": { "message": "速度と残り時間を動画に表示" }
 }

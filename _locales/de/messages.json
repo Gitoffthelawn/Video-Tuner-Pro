@@ -47,5 +47,6 @@
   "meterThr": { "message": "Schwelle" },
   "meterBuffer": { "message": "Puffer" },
   "meterTargetMark": { "message": "Ziel" },
-  "bufferLiveOnly": { "message": "Nur bei Livestreams" }
+  "bufferLiveOnly": { "message": "Nur bei Livestreams" },
+  "onVideoLabel": { "message": "Tempo & Zeit im Video anzeigen" }
 }

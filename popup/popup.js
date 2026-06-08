@@ -292,6 +292,11 @@ document.getElementById("audioCompToggle").addEventListener("change", (e) => {
   autoExpandOnFirstEnable(e.target.checked, "audioBody", "audioSeen");
 });
 
+// Show speed + remaining time on the video.
+document.getElementById("onVideoToggle").addEventListener("change", (e) => {
+  STORE.set({ showRemaining: e.target.checked });
+});
+
 // Each compressor param input writes its own storage key directly.
 const ADV = [
   ["acThreshold", "audioCompThreshold", -100, 0, -50],
@@ -325,6 +330,7 @@ localize();
 init();
 loadSyncSettings();
 loadAudioSettings();
+STORE.get(["showRemaining"], (r) => { document.getElementById("onVideoToggle").checked = !!r.showRemaining; });
 
 // While the popup is open, refresh the readout so live-sync speed is visible.
 setInterval(() => {

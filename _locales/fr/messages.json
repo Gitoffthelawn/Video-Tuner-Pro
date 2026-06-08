@@ -47,5 +47,6 @@
   "meterThr": { "message": "Seuil" },
   "meterBuffer": { "message": "Tampon" },
   "meterTargetMark": { "message": "Cible" },
-  "bufferLiveOnly": { "message": "Streams en direct uniquement" }
+  "bufferLiveOnly": { "message": "Streams en direct uniquement" },
+  "onVideoLabel": { "message": "Afficher la vitesse et le temps sur la vidéo" }
 }

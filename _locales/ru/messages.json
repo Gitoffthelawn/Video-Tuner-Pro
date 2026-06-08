@@ -47,5 +47,6 @@
   "meterThr": { "message": "Порог" },
   "meterBuffer": { "message": "Буфер" },
   "meterTargetMark": { "message": "Цель" },
-  "bufferLiveOnly": { "message": "Только для прямых эфиров" }
+  "bufferLiveOnly": { "message": "Только для прямых эфиров" },
+  "onVideoLabel": { "message": "Показывать скорость и время на видео" }
 }

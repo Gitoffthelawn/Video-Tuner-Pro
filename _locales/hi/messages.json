@@ -47,5 +47,6 @@
   "meterThr": { "message": "थ्रेशोल्ड" },
   "meterBuffer": { "message": "बफ़र" },
   "meterTargetMark": { "message": "लक्ष्य" },
-  "bufferLiveOnly": { "message": "केवल लाइव स्ट्रीम" }
+  "bufferLiveOnly": { "message": "केवल लाइव स्ट्रीम" },
+  "onVideoLabel": { "message": "वीडियो पर गति और समय दिखाएँ" }
 }

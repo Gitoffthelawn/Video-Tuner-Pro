@@ -128,6 +128,11 @@
         .no-video {
             display: none; margin-top: 10px; font-size: 11px; color: var(--muted); text-align: center;
         }
+        /* Inline toggle: show speed + remaining time on the video. */
+        .extra-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            margin-top: 12px; font-size: 12px; color: var(--text);
+        }
         .sync-section {
             position: relative;
             background: var(--surface); border-radius: 10px; padding: 12px; margin-bottom: 10px;
@@ -279,6 +284,14 @@
         <div class="quick-actions">
             <button class="btn-action btn-reset" id="resetBtn" data-i18n="resetButton">Reset (100%)</button>
             <button class="btn-action btn-default" id="setDefaultBtn" data-i18n="rememberButton">Remember site</button>
+        </div>
+
+        <div class="extra-row">
+            <span data-i18n="onVideoLabel">Show speed &amp; time on video</span>
+            <label class="switch" for="onVideoToggle">
+                <input type="checkbox" id="onVideoToggle" class="switch-input">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+            </label>
         </div>
 
         <div class="no-video" id="noVideo" data-i18n="noVideo">No video found on the page — open a video and refresh.</div>

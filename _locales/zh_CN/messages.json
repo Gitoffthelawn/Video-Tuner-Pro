@@ -47,5 +47,6 @@
   "meterThr": { "message": "阈值" },
   "meterBuffer": { "message": "缓冲" },
   "meterTargetMark": { "message": "目标" },
-  "bufferLiveOnly": { "message": "仅限直播" }
+  "bufferLiveOnly": { "message": "仅限直播" },
+  "onVideoLabel": { "message": "在视频上显示速度和时间" }
 }
