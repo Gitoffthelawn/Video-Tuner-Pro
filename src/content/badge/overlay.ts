@@ -84,9 +84,11 @@ function resetBadgePos(): void {
 // Drag the badge anywhere over the video; the drop point is stored as a fraction
 // (clamped inside the frame) for this site.
 function hookBadgeDrag(el: HTMLElement): void {
+  let moved = false;
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     dragging = true;
+    moved = false;
     try { el.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
     el.style.cursor = "grabbing";
     const r = el.getBoundingClientRect();
@@ -96,6 +98,7 @@ function hookBadgeDrag(el: HTMLElement): void {
   });
   el.addEventListener("pointermove", (e) => {
     if (!dragging) return;
+    moved = true;
     el.style.left = Math.round(e.clientX - dragDX) + "px";
     el.style.top = Math.round(e.clientY - dragDY) + "px";
     flashBadge(); // stay lit while dragging
@@ -104,11 +107,12 @@ function hookBadgeDrag(el: HTMLElement): void {
     if (!dragging) return;
     dragging = false;
     el.style.cursor = "grab";
-    const v = badgeVideo;
-    if (!v) return;
-    const pos = badgeFraction(el.getBoundingClientRect(), v.getBoundingClientRect());
+    // A click without a drag (e.g. the two clicks of a double-click) must not
+    // re-save — its write would otherwise race the reset below and win.
+    if (!moved || !badgeVideo) return;
+    const pos = badgeFraction(el.getBoundingClientRect(), badgeVideo.getBoundingClientRect());
     S.badgePos = pos;
-    positionBadge(el, v); // snap to the clamped spot
+    positionBadge(el, badgeVideo); // snap to the clamped spot
     saveBadgePos(pos.fx, pos.fy);
   };
   el.addEventListener("pointerup", drop);
