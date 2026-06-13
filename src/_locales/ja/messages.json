@@ -56,7 +56,8 @@
   "kbdLabel": { "message": "キーボードショートカット" },
   "kbdSlowerFaster": { "message": "遅く / 速く" },
   "kbdReset": { "message": "リセット" },
-  "kbdSaved": { "message": "保存した速度" },
+  "kbdSaveSite": { "message": "サイトを保存" },
+  "kbdSaveChannel": { "message": "チャンネルを保存" },
   "rememberChannel": { "message": "チャンネルに記憶" },
   "resetChannel": { "message": "チャンネルをリセット" }
 }

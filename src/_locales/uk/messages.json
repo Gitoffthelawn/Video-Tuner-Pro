@@ -56,7 +56,8 @@
   "kbdLabel": { "message": "Гарячі клавіші" },
   "kbdSlowerFaster": { "message": "повільніше / швидше" },
   "kbdReset": { "message": "скидання" },
-  "kbdSaved": { "message": "збережена швидкість" },
+  "kbdSaveSite": { "message": "зберегти сайт" },
+  "kbdSaveChannel": { "message": "зберегти канал" },
   "rememberChannel": { "message": "Запам'ятати для каналу" },
   "resetChannel": { "message": "Скинути для каналу" }
 }
