@@ -71,6 +71,16 @@ function saveBadgePos(fx: number, fy: number): void {
   });
 }
 
+// Double-click clears the saved position → back to the default corner.
+function resetBadgePos(): void {
+  if (!ctxValid()) return;
+  STORE.get(["badgePos"], (r) => {
+    const map = (r.badgePos || {}) as Record<string, { fx: number; fy: number }>;
+    delete map[getDomain()];
+    STORE.set({ badgePos: map });
+  });
+}
+
 // Drag the badge anywhere over the video; the drop point is stored as a fraction
 // (clamped inside the frame) for this site.
 function hookBadgeDrag(el: HTMLElement): void {
@@ -103,6 +113,13 @@ function hookBadgeDrag(el: HTMLElement): void {
   };
   el.addEventListener("pointerup", drop);
   el.addEventListener("pointercancel", drop);
+  el.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    dragging = false;
+    S.badgePos = null;
+    if (badgeVideo) positionBadge(el, badgeVideo);
+    resetBadgePos();
+  });
 }
 
 function renderBadge(v: HTMLVideoElement): void {
