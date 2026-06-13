@@ -56,7 +56,8 @@
   "kbdLabel": { "message": "Tastenkürzel" },
   "kbdSlowerFaster": { "message": "langsamer / schneller" },
   "kbdReset": { "message": "zurücksetzen" },
-  "kbdSaved": { "message": "gespeichertes Tempo" },
+  "kbdSaveSite": { "message": "Seite speichern" },
+  "kbdSaveChannel": { "message": "Kanal speichern" },
   "rememberChannel": { "message": "Für Kanal merken" },
   "resetChannel": { "message": "Für Kanal zurücksetzen" }
 }
