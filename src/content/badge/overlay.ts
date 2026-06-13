@@ -1,5 +1,9 @@
 import { MIN_FORWARD_BUFFER } from "../core/constants.js";
 import { S } from "../state.js";
+import { getDomain } from "../core/domain.js";
+import { badgeFraction } from "../core/badge-pos.js";
+import { STORE } from "../platform/storage.js";
+import { ctxValid } from "../platform/browser.js";
 import { primaryVideo } from "../videos.js";
 import { onStreamPage } from "../live/detection.js";
 import { catchupBufferLimited } from "../live/catchup.js";
@@ -36,13 +40,75 @@ let timeBadgeEl: HTMLDivElement | null = null;
 let timeBadgeHideTimer: Timer | undefined;
 let badgeVideo: HTMLVideoElement | null = null;   // cached primary video so mousemove stays cheap
 let badgeMoveHooked = false;
+let dragging = false;
+let dragDX = 0, dragDY = 0;
+
+// True if a node is inside our own badge — the observer ignores our writes (and
+// the rapid position updates during a drag) so they don't re-trigger applyAll.
+export function ownsBadgeNode(node: Node | null): boolean {
+  return !!(timeBadgeEl && node && timeBadgeEl.contains(node));
+}
+
+// Place the badge at its saved per-site fraction of the video, or the default
+// top-left corner when it's never been moved.
+function positionBadge(el: HTMLElement, v: HTMLVideoElement): void {
+  const r = v.getBoundingClientRect();
+  if (S.badgePos) {
+    el.style.left = Math.round(r.left + S.badgePos.fx * r.width) + "px";
+    el.style.top = Math.round(r.top + S.badgePos.fy * r.height) + "px";
+  } else {
+    el.style.left = Math.round(r.left + Math.max(10, r.width * 0.012)) + "px";
+    el.style.top = Math.round(r.top + Math.max(10, r.height * 0.04)) + "px";
+  }
+}
+
+function saveBadgePos(fx: number, fy: number): void {
+  if (!ctxValid()) return;
+  STORE.get(["badgePos"], (r) => {
+    const map = (r.badgePos || {}) as Record<string, { fx: number; fy: number }>;
+    map[getDomain()] = { fx, fy };
+    STORE.set({ badgePos: map });
+  });
+}
+
+// Drag the badge anywhere over the video; the drop point is stored as a fraction
+// (clamped inside the frame) for this site.
+function hookBadgeDrag(el: HTMLElement): void {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    try { el.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+    el.style.cursor = "grabbing";
+    const r = el.getBoundingClientRect();
+    dragDX = e.clientX - r.left;
+    dragDY = e.clientY - r.top;
+    e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    el.style.left = Math.round(e.clientX - dragDX) + "px";
+    el.style.top = Math.round(e.clientY - dragDY) + "px";
+    flashBadge(); // stay lit while dragging
+  });
+  const drop = () => {
+    if (!dragging) return;
+    dragging = false;
+    el.style.cursor = "grab";
+    const v = badgeVideo;
+    if (!v) return;
+    const pos = badgeFraction(el.getBoundingClientRect(), v.getBoundingClientRect());
+    S.badgePos = pos;
+    positionBadge(el, v); // snap to the clamped spot
+    saveBadgePos(pos.fx, pos.fy);
+  };
+  el.addEventListener("pointerup", drop);
+  el.addEventListener("pointercancel", drop);
+}
 
 function renderBadge(v: HTMLVideoElement): void {
   const el = timeBadgeEl;
   if (!el) return;
-  const r = v.getBoundingClientRect();
-  el.style.left = Math.round(r.left + Math.max(10, r.width * 0.012)) + "px";
-  el.style.top = Math.round(r.top + Math.max(10, r.height * 0.04)) + "px";
+  if (!dragging) positionBadge(el, v);
   const speed = v.playbackRate || S.currentSpeed || 1;
   const sp = Math.round(speed * 100) / 100;
   if (onStreamPage()) {
@@ -70,8 +136,13 @@ function renderBadge(v: HTMLVideoElement): void {
 export function flashBadge(): void {
   if (!timeBadgeEl || timeBadgeEl.style.display === "none") return;
   timeBadgeEl.style.opacity = "1";
+  timeBadgeEl.style.pointerEvents = "auto"; // grabbable while shown
   clearTimeout(timeBadgeHideTimer);
-  timeBadgeHideTimer = setTimeout(() => { if (timeBadgeEl) timeBadgeEl.style.opacity = "0"; }, 2600);
+  timeBadgeHideTimer = setTimeout(() => {
+    if (!timeBadgeEl || dragging) return; // never fade out mid-drag
+    timeBadgeEl.style.opacity = "0";
+    timeBadgeEl.style.pointerEvents = "none"; // hidden → don't block clicks on the video
+  }, 2600);
 }
 
 function hookBadgeMouse(): void {
@@ -111,13 +182,15 @@ export function updateTimeBadge(): void {
   if (!el) {
     el = document.createElement("div");
     el.style.cssText = [
-      "position:fixed", "z-index:2147483646", "pointer-events:none",
+      "position:fixed", "z-index:2147483646", "pointer-events:none", "cursor:grab",
+      "touch-action:none", "user-select:none",
       "font:600 12px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
       "color:#fff", "background:rgba(0,0,0,0.55)", "padding:5px 9px",
       "border-radius:6px", "white-space:nowrap", "opacity:0", "transition:opacity .25s",
       "-webkit-backdrop-filter:blur(3px)", "backdrop-filter:blur(3px)"
     ].join(";");
     timeBadgeEl = el;
+    hookBadgeDrag(el);
   }
   const fsEl = document.fullscreenElement;
   const host: Element = (fsEl && fsEl.tagName !== "VIDEO") ? fsEl : document.body;
