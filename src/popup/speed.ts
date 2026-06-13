@@ -28,10 +28,11 @@ function setLive(flag: boolean): void {
 
 // The "for channel" caret/menu shows only on a YouTube watch page (content sends
 // the channel key in getSpeed; null elsewhere).
-function setChannel(channel: string | null | undefined): void {
+function setChannel(channel: string | null | undefined, name?: string | null): void {
   const on = !!channel;
   byId("resetSplit").classList.toggle("has-channel", on);
   byId("rememberSplit").classList.toggle("has-channel", on);
+  byId("currentChannel").textContent = on ? (name || channel || "") : "";
 }
 
 function flashSaved(btn: HTMLElement): void {
@@ -116,7 +117,7 @@ export async function init(): Promise<void> {
         resolved = true;
         updateUI(resp.speed);
         setLive(!!resp.live);
-        setChannel(resp.channel);
+        setChannel(resp.channel, resp.channelName);
       } else {
         fallbackFromStorage();
       }
@@ -191,7 +192,7 @@ setInterval(() => {
   if (ctx.activeTabId == null) return;
   api.tabs.sendMessage(ctx.activeTabId, { action: "getSpeed" }, (resp) => {
     if (api.runtime.lastError || !resp) return;
-    setChannel(resp.channel);
+    setChannel(resp.channel, resp.channelName);
     if (resp.live) {
       ctx.liveMisses = 0;
       setLive(true);

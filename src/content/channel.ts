@@ -18,3 +18,11 @@ export function currentChannel(): string | null {
   const m = href.match(/\/(@[A-Za-z0-9._-]+|channel\/UC[A-Za-z0-9_-]+)/);
   return m ? m[1] : null;
 }
+
+// The channel's display name (the owner-link text), for the popup header.
+export function currentChannelName(): string {
+  const a = document.querySelector<HTMLElement>(
+    "ytd-video-owner-renderer ytd-channel-name a, #owner ytd-channel-name a, #upload-info #channel-name a"
+  );
+  return (a?.textContent || "").trim();
+}

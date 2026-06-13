@@ -2,7 +2,7 @@
 // the frame holding the video replies, with the top frame as a deferred fallback.
 import { api } from "./platform/browser.js";
 import { getDomain } from "./core/domain.js";
-import { currentChannel } from "./channel.js";
+import { currentChannel, currentChannelName } from "./channel.js";
 import { clamp } from "./core/clamp.js";
 import { S } from "./state.js";
 import { collectVideos } from "./videos.js";
@@ -46,7 +46,7 @@ api.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "getSpeed") {
     return replyFromVideoFrame(sendResponse,
-      () => ({ speed: S.currentSpeed, domain: getDomain(), channel: currentChannel(), live: onStreamPage() }));
+      () => ({ speed: S.currentSpeed, domain: getDomain(), channel: currentChannel(), channelName: currentChannelName(), live: onStreamPage() }));
   }
   if (request.action === "getMonitor") {
     return replyFromVideoFrame(sendResponse, () => monitorData());
