@@ -51,5 +51,7 @@
   "bufferLiveOnly": { "message": "Live streams only" },
   "bufferLowWarn": { "message": "Low buffer — catch-up limited" },
   "onVideoLabel": { "message": "Show speed & time on video" },
-  "onStreamLabel": { "message": "Show speed & buffer on video" }
+  "onStreamLabel": { "message": "Show speed & buffer on video" },
+  "rememberChannel": { "message": "Remember for channel" },
+  "resetChannel": { "message": "Reset for channel" }
 }

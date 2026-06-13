@@ -194,6 +194,84 @@
     }
 }
 
+/* Split buttons: the main action + a caret opening a "for channel" option, shown
+   only on a YouTube watch page (.has-channel, set by the popup). */
+.split {
+    position: relative;
+    display: flex;
+}
+.split > .btn-action {
+    flex: 1;
+    width: 100%;
+}
+.split-caret {
+    display: none;
+    flex: 0 0 30px;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+}
+.split-caret svg {
+    width: 15px;
+    height: 15px;
+}
+.split.has-channel .split-caret {
+    display: flex;
+}
+.split.has-channel > .btn-action {
+    border-radius: 8px 0 0 8px;
+}
+#resetSplit .split-caret {
+    background: var(--seg);
+    color: var(--text);
+    border-left: 1px solid var(--track);
+}
+#resetSplit .split-caret:hover {
+    filter: brightness(0.96);
+}
+#rememberSplit .split-caret {
+    background: var(--accent);
+    color: #fff;
+    border-left: 1px solid rgba(255, 255, 255, 0.25);
+}
+#rememberSplit .split-caret:hover {
+    filter: brightness(1.05);
+}
+
+.split-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 5;
+    min-width: 160px;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--track);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px var(--shadow);
+}
+.split.open .split-menu {
+    display: block;
+}
+.split-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+}
+.split-menu button:hover {
+    background: var(--seg);
+}
+
 /* Inline toggle: show speed + remaining time on the video. */
 .extra-row {
     display: flex;

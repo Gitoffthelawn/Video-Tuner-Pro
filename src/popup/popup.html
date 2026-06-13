@@ -42,8 +42,24 @@
         </div>
 
         <div class="quick-actions">
-            <button class="btn-action btn-reset" id="resetBtn" data-i18n="resetButton">Reset (100%)</button>
-            <button class="btn-action btn-default" id="setDefaultBtn" data-i18n="rememberButton">Remember site</button>
+            <div class="split" id="resetSplit">
+                <button class="btn-action btn-reset" id="resetBtn" data-i18n="resetButton">Reset (100%)</button>
+                <button type="button" class="split-caret" id="resetCaret" aria-label="More" aria-haspopup="true">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="split-menu" id="resetMenu">
+                    <button type="button" id="resetChannelBtn" data-i18n="resetChannel">Reset for channel</button>
+                </div>
+            </div>
+            <div class="split" id="rememberSplit">
+                <button class="btn-action btn-default" id="setDefaultBtn" data-i18n="rememberButton">Remember site</button>
+                <button type="button" class="split-caret" id="rememberCaret" aria-label="More" aria-haspopup="true">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="split-menu" id="rememberMenu">
+                    <button type="button" id="rememberChannelBtn" data-i18n="rememberChannel">Remember for channel</button>
+                </div>
+            </div>
         </div>
 
         <div class="extra-row">

@@ -26,6 +26,21 @@ function setLive(flag: boolean): void {
   document.querySelector(".speed-section")?.classList.toggle("locked", flag);
 }
 
+// The "for channel" caret/menu shows only on a YouTube watch page (content sends
+// the channel key in getSpeed; null elsewhere).
+function setChannel(channel: string | null | undefined): void {
+  const on = !!channel;
+  byId("resetSplit").classList.toggle("has-channel", on);
+  byId("rememberSplit").classList.toggle("has-channel", on);
+}
+
+function flashSaved(btn: HTMLElement): void {
+  const original = btn.textContent;
+  btn.textContent = msg("savedFeedback");
+  btn.style.background = "#4caf50";
+  setTimeout(() => { btn.textContent = original; btn.style.background = ""; }, 1500);
+}
+
 function sendSpeed(clamped: number): void {
   if (ctx.activeTabId == null) return;
   api.tabs.sendMessage(ctx.activeTabId, { action: "setSpeed", speed: clamped }, (resp) => {
@@ -73,11 +88,7 @@ function setAsDefault(): void {
   } else {
     saveDomainSpeed(speed);
   }
-  const btn = byId("setDefaultBtn");
-  const original = btn.textContent;
-  btn.textContent = msg("savedFeedback");
-  btn.style.background = "#4caf50";
-  setTimeout(() => { btn.textContent = original; btn.style.background = ""; }, 1500);
+  flashSaved(byId("setDefaultBtn"));
 }
 
 function fallbackFromStorage(): void {
@@ -105,6 +116,7 @@ export async function init(): Promise<void> {
         resolved = true;
         updateUI(resp.speed);
         setLive(!!resp.live);
+        setChannel(resp.channel);
       } else {
         fallbackFromStorage();
       }
@@ -138,11 +150,48 @@ document.querySelectorAll<HTMLElement>(".btn-speed").forEach((btn) => {
 byId("resetBtn").addEventListener("click", resetSpeed);
 byId("setDefaultBtn").addEventListener("click", setAsDefault);
 
+// "For channel" actions (the split-button menus) — only reachable on YouTube,
+// where the caret is shown.
+function rememberChannel(): void {
+  const speed = clamp(parseFloat(byId("speedValue").textContent || "100") / 100);
+  if (ctx.activeTabId != null) {
+    api.tabs.sendMessage(ctx.activeTabId, { action: "rememberChannel", speed }, () => { void api.runtime.lastError; });
+  }
+  flashSaved(byId("setDefaultBtn"));
+}
+function resetChannel(): void {
+  const tabId = ctx.activeTabId;
+  if (tabId == null) return;
+  api.tabs.sendMessage(tabId, { action: "resetChannel" }, () => {
+    if (api.runtime.lastError) return;
+    // The content falls back to the domain speed (or 100%); pull the new value.
+    setTimeout(() => api.tabs.sendMessage(tabId, { action: "getSpeed" }, (r) => {
+      if (!api.runtime.lastError && r && typeof r.speed === "number") updateUI(r.speed);
+    }), 80);
+  });
+}
+function closeMenus(): void {
+  document.querySelectorAll(".split.open").forEach((s) => s.classList.remove("open"));
+}
+for (const id of ["resetCaret", "rememberCaret"]) {
+  byId(id).addEventListener("click", (e) => {
+    e.stopPropagation();
+    const split = (e.currentTarget as HTMLElement).closest(".split");
+    const open = split?.classList.contains("open");
+    closeMenus();
+    if (!open) split?.classList.add("open");
+  });
+}
+byId("rememberChannelBtn").addEventListener("click", () => { closeMenus(); rememberChannel(); });
+byId("resetChannelBtn").addEventListener("click", () => { closeMenus(); resetChannel(); });
+document.addEventListener("click", closeMenus);
+
 // Poll while the popup is open so live-sync speed changes show in the readout.
 setInterval(() => {
   if (ctx.activeTabId == null) return;
   api.tabs.sendMessage(ctx.activeTabId, { action: "getSpeed" }, (resp) => {
     if (api.runtime.lastError || !resp) return;
+    setChannel(resp.channel);
     if (resp.live) {
       ctx.liveMisses = 0;
       setLive(true);

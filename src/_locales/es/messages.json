@@ -51,5 +51,7 @@
   "bufferLiveOnly": { "message": "Solo en directos" },
   "bufferLowWarn": { "message": "Búfer bajo — alcance limitado" },
   "onVideoLabel": { "message": "Mostrar velocidad y tiempo en el vídeo" },
-  "onStreamLabel": { "message": "Mostrar velocidad y búfer en el vídeo" }
+  "onStreamLabel": { "message": "Mostrar velocidad y búfer en el vídeo" },
+  "rememberChannel": { "message": "Recordar para el canal" },
+  "resetChannel": { "message": "Restablecer para el canal" }
 }

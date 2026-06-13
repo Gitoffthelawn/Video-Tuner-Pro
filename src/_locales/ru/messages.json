@@ -51,5 +51,7 @@
   "bufferLiveOnly": { "message": "Только для прямых эфиров" },
   "bufferLowWarn": { "message": "Буфер мал — догон ограничен" },
   "onVideoLabel": { "message": "Показывать скорость и время на видео" },
-  "onStreamLabel": { "message": "Показывать скорость и буфер на видео" }
+  "onStreamLabel": { "message": "Показывать скорость и буфер на видео" },
+  "rememberChannel": { "message": "Запомнить для канала" },
+  "resetChannel": { "message": "Сбросить для канала" }
 }

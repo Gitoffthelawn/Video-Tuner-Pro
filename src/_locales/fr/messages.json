@@ -51,5 +51,7 @@
   "bufferLiveOnly": { "message": "Streams en direct uniquement" },
   "bufferLowWarn": { "message": "Tampon faible — rattrapage limité" },
   "onVideoLabel": { "message": "Afficher la vitesse et le temps sur la vidéo" },
-  "onStreamLabel": { "message": "Afficher la vitesse et le tampon sur la vidéo" }
+  "onStreamLabel": { "message": "Afficher la vitesse et le tampon sur la vidéo" },
+  "rememberChannel": { "message": "Mémoriser pour la chaîne" },
+  "resetChannel": { "message": "Réinitialiser pour la chaîne" }
 }
