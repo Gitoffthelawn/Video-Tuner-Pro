@@ -59,7 +59,8 @@
   "kbdLabel": { "message": "Горячие клавиши" },
   "kbdSlowerFaster": { "message": "медленнее / быстрее" },
   "kbdReset": { "message": "сброс" },
-  "kbdSaved": { "message": "сохранённая скорость" },
+  "kbdSaveSite": { "message": "сохранить сайт" },
+  "kbdSaveChannel": { "message": "сохранить канал" },
   "rememberChannel": { "message": "Запомнить для канала" },
   "resetChannel": { "message": "Сбросить для канала" }
 }

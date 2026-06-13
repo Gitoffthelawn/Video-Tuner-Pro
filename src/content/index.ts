@@ -2,7 +2,7 @@
 // as a side effect of being imported.
 import { api, ctxValid } from "./platform/browser.js";
 import { STORE, STORE_AREA } from "./platform/storage.js";
-import { clamp, clampTarget, clampNum } from "./core/clamp.js";
+import { clamp, clampTarget, clampNum, resolveTarget } from "./core/clamp.js";
 import { getDomain } from "./core/domain.js";
 import { S } from "./state.js";
 import { applyAll } from "./speed.js";
@@ -39,7 +39,7 @@ function applyResolved(domains: Record<string, number>, channels: Record<string,
 function loadSpeed() {
   if (!ctxValid()) return;
   STORE.get(
-    ["domains", "channels", "liveSync", "liveSyncTarget",
+    ["domains", "channels", "liveSync", "liveSyncTarget", "syncTargets",
      "audioComp", "audioCompThreshold", "audioCompKnee", "audioCompRatio",
      "audioCompAttack", "audioCompRelease", "audioCompGain", "showRemaining", "streamBadge", "keyboard"],
     (result) => {
@@ -51,7 +51,10 @@ function loadSpeed() {
       S.streamBadge = result.streamBadge !== false;
       S.keyboardEnabled = result.keyboard !== false;
       S.liveSyncEnabled = result.liveSync !== false;
-      S.liveSyncTarget = clampTarget(result.liveSyncTarget != null ? result.liveSyncTarget : 5);
+      // Allowed delay is per-site (syncTargets), falling back to the legacy
+      // global value, then the 5s default.
+      S.liveSyncTarget = resolveTarget(
+        result.syncTargets as Record<string, number> | undefined, getDomain(), result.liveSyncTarget);
       S.audioCompEnabled = result.audioComp !== false;
       S.audioCompThreshold = clampNum(result.audioCompThreshold, -100, 0, -60);
       S.audioCompKnee = clampNum(result.audioCompKnee, 0, 40, 30);
@@ -129,8 +132,12 @@ if (document.documentElement) {
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== STORE_AREA) return;
   if (changes.liveSync) S.liveSyncEnabled = !!changes.liveSync.newValue;
-  if (changes.liveSyncTarget) S.liveSyncTarget = clampTarget(changes.liveSyncTarget.newValue);
-  if (changes.liveSync || changes.liveSyncTarget) {
+  if (changes.syncTargets) {
+    // Per-site allowed delay — apply only when this domain's value changed.
+    const t = (changes.syncTargets.newValue as Record<string, number> | undefined || {})[getDomain()];
+    if (t != null) S.liveSyncTarget = clampTarget(t);
+  }
+  if (changes.liveSync || changes.syncTargets) {
     resetSyncAnnounce();
     controlLive();
   }

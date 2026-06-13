@@ -59,7 +59,8 @@
   "kbdLabel": { "message": "कीबोर्ड शॉर्टकट" },
   "kbdSlowerFaster": { "message": "धीमा / तेज़" },
   "kbdReset": { "message": "रीसेट" },
-  "kbdSaved": { "message": "सहेजी गई गति" },
+  "kbdSaveSite": { "message": "साइट सहेजें" },
+  "kbdSaveChannel": { "message": "चैनल सहेजें" },
   "rememberChannel": { "message": "चैनल के लिए याद रखें" },
   "resetChannel": { "message": "चैनल के लिए रीसेट करें" }
 }

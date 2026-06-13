@@ -59,7 +59,8 @@
   "kbdLabel": { "message": "Raccourcis clavier" },
   "kbdSlowerFaster": { "message": "ralentir / accélérer" },
   "kbdReset": { "message": "réinitialiser" },
-  "kbdSaved": { "message": "vitesse enregistrée" },
+  "kbdSaveSite": { "message": "enregistrer le site" },
+  "kbdSaveChannel": { "message": "enregistrer la chaîne" },
   "rememberChannel": { "message": "Mémoriser pour la chaîne" },
   "resetChannel": { "message": "Réinitialiser pour la chaîne" }
 }

@@ -59,7 +59,8 @@
   "kbdLabel": { "message": "键盘快捷键" },
   "kbdSlowerFaster": { "message": "更慢 / 更快" },
   "kbdReset": { "message": "重置" },
-  "kbdSaved": { "message": "已保存的速度" },
+  "kbdSaveSite": { "message": "保存网站" },
+  "kbdSaveChannel": { "message": "保存频道" },
   "rememberChannel": { "message": "为频道记忆" },
   "resetChannel": { "message": "重置频道" }
 }
