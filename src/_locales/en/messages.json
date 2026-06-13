@@ -56,7 +56,8 @@
   "kbdLabel": { "message": "Keyboard shortcuts" },
   "kbdSlowerFaster": { "message": "slower / faster" },
   "kbdReset": { "message": "reset" },
-  "kbdSaved": { "message": "saved speed" },
+  "kbdSaveSite": { "message": "save site" },
+  "kbdSaveChannel": { "message": "save channel" },
   "rememberChannel": { "message": "Remember for channel" },
   "resetChannel": { "message": "Reset for channel" }
 }

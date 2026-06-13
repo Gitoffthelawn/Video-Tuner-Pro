@@ -145,6 +145,7 @@
 }
 .speed-section > .quick-actions {
     margin-top: 10px;
+    margin-bottom: 12px;   /* clearance so the bottom expand chevron isn't cramped against the buttons */
 }
 
 .btn-speed {
@@ -310,14 +311,20 @@
 }
 
 /* Keyboard-shortcuts hint: the key letters as little keycap chips, each with its
-   localized action label. */
+   localized action label. Two fixed lines — moves/reset on top, the save keys
+   together below. */
 .kbd-hint {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px 12px;
+    flex-direction: column;
+    gap: 6px;
     margin-top: 8px;
     font-size: 11px;
     color: var(--muted);
+}
+.kbd-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
 }
 .kbd-hint .kbd-row {
     display: inline-flex;
