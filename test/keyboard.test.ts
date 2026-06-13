@@ -40,16 +40,16 @@ describe("keyboard shortcuts", () => {
     document.body.innerHTML = "";
   });
 
-  it("D speeds up by 0.1 (manual)", () => {
+  it("D speeds up by 5% (manual)", () => {
     S.currentSpeed = 1.0;
     press("KeyD");
-    expect(m.setSpeed).toHaveBeenCalledWith(expect.closeTo(1.1), false, true);
+    expect(m.setSpeed).toHaveBeenCalledWith(expect.closeTo(1.05), false, true);
   });
 
-  it("S slows down by 0.1 (manual)", () => {
+  it("S slows down by 5% (manual)", () => {
     S.currentSpeed = 1.5;
     press("KeyS");
-    expect(m.setSpeed).toHaveBeenCalledWith(expect.closeTo(1.4), false, true);
+    expect(m.setSpeed).toHaveBeenCalledWith(expect.closeTo(1.45), false, true);
   });
 
   it("R resets to 100%", () => {

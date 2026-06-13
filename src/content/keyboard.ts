@@ -13,7 +13,7 @@ import { showIndicator } from "./badge/indicator.js";
 import { i18n } from "./platform/i18n.js";
 import { primaryVideo } from "./videos.js";
 
-const STEP = 0.1;
+const STEP = 0.05;
 
 // The focused element, piercing open shadow roots — some sites host inputs there.
 function deepActive(): Element | null {
