@@ -12,6 +12,7 @@ import { engageAudio } from "./audio/status.js";
 import { updateTimeBadge, flashBadge, ownsBadgeNode } from "./badge/overlay.js";
 import "./messaging.js"; // registers the popup message handler (pulls in the bitrate sampler)
 import "./keyboard.js";  // registers the keyboard-shortcut listener
+import "./theater.js";   // applies the YouTube "super theater" layout when enabled
 import { currentChannel } from "./channel.js";
 
 let liveTick: ReturnType<typeof setInterval> | null = null;
@@ -38,7 +39,7 @@ function applyResolved(domains: Record<string, number>, channels: Record<string,
 function loadSpeed() {
   if (!ctxValid()) return;
   STORE.get(
-    ["domains", "channels", "liveSync", "liveSyncTarget", "syncTargets", "badgePos",
+    ["domains", "channels", "liveSync", "liveSyncTarget", "syncTargets", "badgePos", "badgePinned",
      "audioComp", "audioCompThreshold", "audioCompKnee", "audioCompRatio",
      "audioCompAttack", "audioCompRelease", "audioCompGain", "showRemaining", "streamBadge", "keyboard"],
     (result) => {
@@ -46,6 +47,7 @@ function loadSpeed() {
       const channels = (result.channels || {}) as Record<string, number>;
       const badgePos = (result.badgePos || {}) as Record<string, { fx: number; fy: number }>;
       S.badgePos = badgePos[getDomain()] || null;
+      S.badgePinned = ((result.badgePinned || {}) as Record<string, boolean>)[getDomain()] === true;
       // Defaults-on: features ship enabled; an explicit `false` in storage (the
       // user turned it off) is still respected.
       S.showRemaining = result.showRemaining !== false;
@@ -147,6 +149,12 @@ api.storage.onChanged.addListener((changes, area) => {
     const map = (changes.badgePos.newValue as Record<string, { fx: number; fy: number }> | undefined) || {};
     S.badgePos = map[getDomain()] || null;
     updateTimeBadge();
+  }
+  if (changes.badgePinned) {
+    const map = (changes.badgePinned.newValue as Record<string, boolean> | undefined) || {};
+    S.badgePinned = map[getDomain()] === true;
+    updateTimeBadge(); // re-syncs the pin + forces visibility when pinned
+    flashBadge();      // when unpinned, resumes the auto-hide countdown
   }
   if (changes.keyboard) S.keyboardEnabled = !!changes.keyboard.newValue;
   let audioChanged = false;
