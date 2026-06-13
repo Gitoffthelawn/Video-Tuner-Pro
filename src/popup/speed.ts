@@ -8,7 +8,6 @@ import { byId } from "./dom.js";
 
 function updateUI(speed: number): void {
   const percent = Math.round(speed * 100);
-  byId("speedValue").textContent = percent + "%";
   byId("currentSpeedPct").textContent = percent + "%";
 
   const slider = byId<HTMLInputElement>("speedSlider");
@@ -32,7 +31,14 @@ function setChannel(channel: string | null | undefined, name?: string | null): v
   const on = !!channel;
   byId("resetSplit").classList.toggle("has-channel", on);
   byId("rememberSplit").classList.toggle("has-channel", on);
-  byId("currentChannel").textContent = on ? (name || channel || "") : "";
+  const label = name || channel || "";
+  byId("currentChannel").textContent = on && label ? " · " + label : "";
+}
+
+// The current speed (as a fraction) read back from the header readout — the one
+// place the popup keeps it once the slider/buttons/+−/keyboard have all moved it.
+function currentPctSpeed(): number {
+  return clamp(parseFloat(byId("currentSpeedPct").textContent || "100") / 100);
 }
 
 function flashSaved(btn: HTMLElement): void {
@@ -81,7 +87,7 @@ function saveDomainSpeed(speed: number): void {
 }
 
 function setAsDefault(): void {
-  const speed = clamp(parseFloat(byId("speedValue").textContent || "100") / 100);
+  const speed = currentPctSpeed();
   if (ctx.activeTabId != null) {
     api.tabs.sendMessage(ctx.activeTabId, { action: "rememberSite", speed }, () => {
       if (api.runtime.lastError) saveDomainSpeed(speed);
@@ -151,10 +157,15 @@ document.querySelectorAll<HTMLElement>(".btn-speed").forEach((btn) => {
 byId("resetBtn").addEventListener("click", resetSpeed);
 byId("setDefaultBtn").addEventListener("click", setAsDefault);
 
+// The −/+ buttons by the readout nudge speed by 5% (the slider's step), so you
+// can adjust without expanding the card.
+byId("speedDown").addEventListener("click", () => setSpeed(currentPctSpeed() - 0.05));
+byId("speedUp").addEventListener("click", () => setSpeed(currentPctSpeed() + 0.05));
+
 // "For channel" actions (the split-button menus) — only reachable on YouTube,
 // where the caret is shown.
 function rememberChannel(): void {
-  const speed = clamp(parseFloat(byId("speedValue").textContent || "100") / 100);
+  const speed = currentPctSpeed();
   if (ctx.activeTabId != null) {
     api.tabs.sendMessage(ctx.activeTabId, { action: "rememberChannel", speed }, () => { void api.runtime.lastError; });
   }
