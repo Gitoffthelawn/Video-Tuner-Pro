@@ -125,7 +125,7 @@ export function drawAudio(g: GraphState, t: number): void {
       acx.fillStyle = "#c7c7cc"; acx.fillText(lvl, w / 2, mid);
       acx.globalAlpha = 1;
     }
-    // ON: a single column — output (после) on top, input (до) on the bottom,
+    // ON: a single column — output (after) on top, input (before) on the bottom,
     // and in the middle the change magnitude with a triangle for direction
     // (up = louder/boost, down = the compressor cut). Fades in after OFF clears.
     const onA = Math.max(0, Math.min(1, (g.compAnim - 0.45) * 2.2));
