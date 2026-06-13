@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "Afficher la vitesse et le tampon sur la vidéo" },
   "kbdLabel": { "message": "Raccourcis clavier" },
   "kbdSlowerFaster": { "message": "ralentir / accélérer" },
+  "kbdBigStep": { "message": "pas de 10 %" },
   "kbdReset": { "message": "réinitialiser" },
   "kbdSaveSite": { "message": "enregistrer le site" },
   "kbdSaveChannel": { "message": "enregistrer la chaîne" },

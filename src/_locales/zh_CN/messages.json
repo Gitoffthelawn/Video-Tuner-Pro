@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "在视频上显示速度和缓冲" },
   "kbdLabel": { "message": "键盘快捷键" },
   "kbdSlowerFaster": { "message": "更慢 / 更快" },
+  "kbdBigStep": { "message": "10% 步进" },
   "kbdReset": { "message": "重置" },
   "kbdSaveSite": { "message": "保存网站" },
   "kbdSaveChannel": { "message": "保存频道" },

@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "Tempo & Puffer im Video anzeigen" },
   "kbdLabel": { "message": "Tastenkürzel" },
   "kbdSlowerFaster": { "message": "langsamer / schneller" },
+  "kbdBigStep": { "message": "10 %-Schritt" },
   "kbdReset": { "message": "zurücksetzen" },
   "kbdSaveSite": { "message": "Seite speichern" },
   "kbdSaveChannel": { "message": "Kanal speichern" },

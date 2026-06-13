@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "Показувати швидкість і буфер на відео" },
   "kbdLabel": { "message": "Гарячі клавіші" },
   "kbdSlowerFaster": { "message": "повільніше / швидше" },
+  "kbdBigStep": { "message": "крок 10%" },
   "kbdReset": { "message": "скидання" },
   "kbdSaveSite": { "message": "зберегти сайт" },
   "kbdSaveChannel": { "message": "зберегти канал" },

@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "速度とバッファを動画に表示" },
   "kbdLabel": { "message": "キーボードショートカット" },
   "kbdSlowerFaster": { "message": "遅く / 速く" },
+  "kbdBigStep": { "message": "10%刻み" },
   "kbdReset": { "message": "リセット" },
   "kbdSaveSite": { "message": "サイトを保存" },
   "kbdSaveChannel": { "message": "チャンネルを保存" },

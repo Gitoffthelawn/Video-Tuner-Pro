@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "Mostrar velocidade e buffer no vídeo" },
   "kbdLabel": { "message": "Atalhos de teclado" },
   "kbdSlowerFaster": { "message": "mais lento / mais rápido" },
+  "kbdBigStep": { "message": "passo de 10%" },
   "kbdReset": { "message": "redefinir" },
   "kbdSaveSite": { "message": "salvar site" },
   "kbdSaveChannel": { "message": "salvar canal" },

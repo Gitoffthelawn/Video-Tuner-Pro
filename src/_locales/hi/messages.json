@@ -48,6 +48,7 @@
   "onStreamLabel": { "message": "वीडियो पर गति और बफ़र दिखाएँ" },
   "kbdLabel": { "message": "कीबोर्ड शॉर्टकट" },
   "kbdSlowerFaster": { "message": "धीमा / तेज़" },
+  "kbdBigStep": { "message": "10% चरण" },
   "kbdReset": { "message": "रीसेट" },
   "kbdSaveSite": { "message": "साइट सहेजें" },
   "kbdSaveChannel": { "message": "चैनल सहेजें" },
