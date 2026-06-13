@@ -32,7 +32,10 @@
   "audioReleaseDesc": { "message": "Tempo para soltar 10 dB." },
   "audioGain": { "message": "Ganho de compensação" },
   "audioGainDesc": { "message": "Elevação do nível geral após a compressão." },
-  "audioReset": { "message": "Restaurar padrões" },
+  "presetsLabel": { "message": "Predefinições" },
+  "presetVoice": { "message": "Voz" },
+  "presetNight": { "message": "Noite" },
+  "presetMovie": { "message": "Filme" },
   "meterIn": { "message": "Entrada" },
   "meterOut": { "message": "Saída" },
   "meterThr": { "message": "Limiar" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "Atalhos de teclado" },
   "kbdSlowerFaster": { "message": "mais lento / mais rápido" },
   "kbdReset": { "message": "redefinir" },
-  "kbdSaved": { "message": "velocidade salva" },
+  "kbdSaveSite": { "message": "salvar site" },
+  "kbdSaveChannel": { "message": "salvar canal" },
   "rememberChannel": { "message": "Lembrar para o canal" },
   "resetChannel": { "message": "Redefinir para o canal" }
 }

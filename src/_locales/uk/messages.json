@@ -32,7 +32,10 @@
   "audioReleaseDesc": { "message": "Час, щоб відпустити на 10 дБ." },
   "audioGain": { "message": "Компенсація гучності" },
   "audioGainDesc": { "message": "Загальне підняття рівня після компресії." },
-  "audioReset": { "message": "Скинути до типових" },
+  "presetsLabel": { "message": "Пресети" },
+  "presetVoice": { "message": "Голос" },
+  "presetNight": { "message": "Ніч" },
+  "presetMovie": { "message": "Кіно" },
   "meterIn": { "message": "До" },
   "meterOut": { "message": "Після" },
   "meterThr": { "message": "Поріг" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "Гарячі клавіші" },
   "kbdSlowerFaster": { "message": "повільніше / швидше" },
   "kbdReset": { "message": "скидання" },
-  "kbdSaved": { "message": "збережена швидкість" },
+  "kbdSaveSite": { "message": "зберегти сайт" },
+  "kbdSaveChannel": { "message": "зберегти канал" },
   "rememberChannel": { "message": "Запам'ятати для каналу" },
   "resetChannel": { "message": "Скинути для каналу" }
 }

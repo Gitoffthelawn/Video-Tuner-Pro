@@ -32,7 +32,10 @@
   "audioReleaseDesc": { "message": "10dB戻すまでの時間。" },
   "audioGain": { "message": "メイクアップゲイン" },
   "audioGainDesc": { "message": "圧縮後の全体レベルの持ち上げ。" },
-  "audioReset": { "message": "既定値に戻す" },
+  "presetsLabel": { "message": "プリセット" },
+  "presetVoice": { "message": "音声" },
+  "presetNight": { "message": "夜間" },
+  "presetMovie": { "message": "映画" },
   "meterIn": { "message": "入力" },
   "meterOut": { "message": "出力" },
   "meterThr": { "message": "スレッショルド" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "キーボードショートカット" },
   "kbdSlowerFaster": { "message": "遅く / 速く" },
   "kbdReset": { "message": "リセット" },
-  "kbdSaved": { "message": "保存した速度" },
+  "kbdSaveSite": { "message": "サイトを保存" },
+  "kbdSaveChannel": { "message": "チャンネルを保存" },
   "rememberChannel": { "message": "チャンネルに記憶" },
   "resetChannel": { "message": "チャンネルをリセット" }
 }

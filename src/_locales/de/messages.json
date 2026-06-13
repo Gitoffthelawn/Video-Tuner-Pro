@@ -32,7 +32,10 @@
   "audioReleaseDesc": { "message": "Zeit, um den Pegel um 10 dB freizugeben." },
   "audioGain": { "message": "Make-up-Gain" },
   "audioGainDesc": { "message": "Anhebung des Gesamtpegels nach der Kompression." },
-  "audioReset": { "message": "Auf Standard zurücksetzen" },
+  "presetsLabel": { "message": "Voreinstellungen" },
+  "presetVoice": { "message": "Stimme" },
+  "presetNight": { "message": "Nacht" },
+  "presetMovie": { "message": "Film" },
   "meterIn": { "message": "Eingang" },
   "meterOut": { "message": "Ausgang" },
   "meterThr": { "message": "Schwelle" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "Tastenkürzel" },
   "kbdSlowerFaster": { "message": "langsamer / schneller" },
   "kbdReset": { "message": "zurücksetzen" },
-  "kbdSaved": { "message": "gespeichertes Tempo" },
+  "kbdSaveSite": { "message": "Seite speichern" },
+  "kbdSaveChannel": { "message": "Kanal speichern" },
   "rememberChannel": { "message": "Für Kanal merken" },
   "resetChannel": { "message": "Für Kanal zurücksetzen" }
 }

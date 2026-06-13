@@ -1,17 +1,17 @@
 // In-page keyboard shortcuts for playback speed (default-on; toggled in the popup).
 // Bare single keys by physical position (e.code, so they hold across layouts):
-//   S / D — slower / faster,  R — reset to 100%,  Z — the speed saved for this site.
-// Ignored while typing in a field, while any modifier is held, and on pages with
-// no video. Live streams ignore manual speed (setSpeed's `manual` flag), so the
-// keys safely no-op there.
+//   S / D — slower / faster,  R — reset to 100%,  Z — remember the current speed
+//   for this site,  Shift+Z — remember it for the YouTube channel.
+// Ignored while typing in a field, while Ctrl/Cmd/Alt is held, and on pages with
+// no video. Speed changes (S/D/R) go through setSpeed's `manual` flag, so a live
+// stream at the live edge safely ignores them.
 import { S } from "./state.js";
-import { setSpeed } from "./speed.js";
+import { setSpeed, persistDomainSpeed, persistChannelSpeed } from "./speed.js";
 import { ctxValid } from "./platform/browser.js";
-import { STORE } from "./platform/storage.js";
-import { getDomain } from "./core/domain.js";
+import { currentChannel } from "./channel.js";
 import { primaryVideo } from "./videos.js";
 
-const STEP = 0.1;
+const STEP = 0.05;
 
 // The focused element, piercing open shadow roots — some sites host inputs there.
 function deepActive(): Element | null {
@@ -38,8 +38,13 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "KeyD") setSpeed(S.currentSpeed + STEP, false, true);
   else if (e.code === "KeyS") setSpeed(S.currentSpeed - STEP, false, true);
   else if (e.code === "KeyR") setSpeed(1.0, false, true);
-  else STORE.get(["domains"], (r) => {   // KeyZ — back to the speed remembered for this site
-    const saved = ((r.domains || {}) as Record<string, number>)[getDomain()];
-    setSpeed(saved || 1.0, false, true);
-  });
+  else {
+    // KeyZ — remember the current speed: Shift+Z for the channel, plain Z for the site.
+    if (e.shiftKey) {
+      if (!currentChannel()) return;   // not on a channel — nothing to save
+      persistChannelSpeed(S.currentSpeed);
+    } else {
+      persistDomainSpeed(S.currentSpeed);
+    }
+  }
 }, true);

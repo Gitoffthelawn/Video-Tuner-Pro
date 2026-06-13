@@ -32,7 +32,10 @@
   "audioRelease": { "message": "Release" },
   "audioReleaseDesc": { "message": "Time to release by 10 dB." },
   "audioGainDesc": { "message": "Overall level lift after compression." },
-  "audioReset": { "message": "Reset to defaults" },
+  "presetsLabel": { "message": "Presets" },
+  "presetVoice": { "message": "Voice" },
+  "presetNight": { "message": "Night" },
+  "presetMovie": { "message": "Movie" },
   "meterIn": { "message": "Input" },
   "meterOut": { "message": "Output" },
   "meterThr": { "message": "Threshold" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "Keyboard shortcuts" },
   "kbdSlowerFaster": { "message": "slower / faster" },
   "kbdReset": { "message": "reset" },
-  "kbdSaved": { "message": "saved speed" },
+  "kbdSaveSite": { "message": "save site" },
+  "kbdSaveChannel": { "message": "save channel" },
   "rememberChannel": { "message": "Remember for channel" },
   "resetChannel": { "message": "Reset for channel" }
 }

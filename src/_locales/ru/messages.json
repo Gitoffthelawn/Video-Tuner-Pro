@@ -32,7 +32,10 @@
   "audioRelease": { "message": "Спад (Release)" },
   "audioReleaseDesc": { "message": "Время, чтобы отпустить на 10 дБ." },
   "audioGainDesc": { "message": "Общий подъём уровня после компрессии." },
-  "audioReset": { "message": "Сбросить к стандартным" },
+  "presetsLabel": { "message": "Пресеты" },
+  "presetVoice": { "message": "Голос" },
+  "presetNight": { "message": "Ночь" },
+  "presetMovie": { "message": "Кино" },
   "meterIn": { "message": "До" },
   "meterOut": { "message": "После" },
   "meterThr": { "message": "Порог" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "Горячие клавиши" },
   "kbdSlowerFaster": { "message": "медленнее / быстрее" },
   "kbdReset": { "message": "сброс" },
-  "kbdSaved": { "message": "сохранённая скорость" },
+  "kbdSaveSite": { "message": "сохранить сайт" },
+  "kbdSaveChannel": { "message": "сохранить канал" },
   "rememberChannel": { "message": "Запомнить для канала" },
   "resetChannel": { "message": "Сбросить для канала" }
 }

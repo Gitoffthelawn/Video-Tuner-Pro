@@ -32,7 +32,10 @@
   "audioReleaseDesc": { "message": "10 dB छोड़ने में लगने वाला समय।" },
   "audioGain": { "message": "मेक-अप गेन" },
   "audioGainDesc": { "message": "कंप्रेशन के बाद समग्र स्तर की बढ़ोतरी।" },
-  "audioReset": { "message": "डिफ़ॉल्ट पर रीसेट करें" },
+  "presetsLabel": { "message": "प्रीसेट" },
+  "presetVoice": { "message": "आवाज़" },
+  "presetNight": { "message": "रात" },
+  "presetMovie": { "message": "मूवी" },
   "meterIn": { "message": "इनपुट" },
   "meterOut": { "message": "आउटपुट" },
   "meterThr": { "message": "थ्रेशोल्ड" },
@@ -46,7 +49,8 @@
   "kbdLabel": { "message": "कीबोर्ड शॉर्टकट" },
   "kbdSlowerFaster": { "message": "धीमा / तेज़" },
   "kbdReset": { "message": "रीसेट" },
-  "kbdSaved": { "message": "सहेजी गई गति" },
+  "kbdSaveSite": { "message": "साइट सहेजें" },
+  "kbdSaveChannel": { "message": "चैनल सहेजें" },
   "rememberChannel": { "message": "चैनल के लिए याद रखें" },
   "resetChannel": { "message": "चैनल के लिए रीसेट करें" }
 }
