@@ -62,4 +62,8 @@ through your own browser profile only. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
-Free to use. © slonick.dev — all rights reserved.
+[GPL-3.0](LICENSE) © slonick.dev
+
+Free to use, study, modify and share. If you distribute a modified version —
+including publishing a fork to a store — it must stay open source under the same
+GPL-3.0 license.

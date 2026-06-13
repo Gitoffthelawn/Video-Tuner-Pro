@@ -1,0 +1,41 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a report. Please fill in the details below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, expected result, actual result.
+    validations:
+      required: true
+  - type: input
+    id: site
+    attributes:
+      label: Site / video
+      description: Which page or player did this happen on?
+      placeholder: e.g. youtube.com, twitch.tv, a specific URL
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Edge
+        - Brave
+        - Firefox
+        - Other (note it below)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: Shown in the popup header and on the extensions page.
+      placeholder: e.g. 2.0.4
+    validations:
+      required: true
