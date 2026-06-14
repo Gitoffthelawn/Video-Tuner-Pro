@@ -1,0 +1,118 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { createMockChrome } from "./mocks/chrome.js";
+
+// Drive the whole options page through jsdom: seed chrome storage, mount the
+// markup, import the entry (which renders every section), then exercise the
+// interactive bits. The page modules are DOM glue (excluded from coverage); this
+// is a wiring smoke test that the real page actually builds and acts.
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+const byId = (id: string) => document.getElementById(id) as HTMLElement;
+const messages = JSON.parse(read("../src/_locales/en/messages.json"));
+
+async function mount(settings: Record<string, unknown>) {
+  document.body.innerHTML = read("../src/options/options.html")
+    .replace(/[\s\S]*<body>/, "").replace(/<\/body>[\s\S]*/, "").replace(/<script[\s\S]*?<\/script>/g, "");
+  (globalThis as unknown as { chrome: typeof chrome; browser?: unknown }).chrome =
+    createMockChrome({ messages, settings });
+  (globalThis as unknown as { browser?: unknown }).browser = undefined;
+  vi.resetModules();
+  await import("../src/options/index.js");
+  // Read storage back through the same mock the page wrote to.
+  return (keys: string[]) => {
+    let out: Record<string, unknown> = {};
+    (globalThis.chrome.storage.local as chrome.storage.StorageArea).get(keys, (r) => { out = r; });
+    return out;
+  };
+}
+
+beforeEach(() => { document.body.innerHTML = ""; });
+
+describe("sync category controls", () => {
+  it("renders a switch per category, reflecting the saved config", async () => {
+    await mount({ syncCategories: { speeds: false } });
+    const rows = document.querySelectorAll("#syncRows .sync-cat-row");
+    expect(rows).toHaveLength(6);
+    const speeds = document.querySelector<HTMLInputElement>("#syncRows .sync-cat-row input");
+    expect(speeds!.checked).toBe(false); // speeds opted out
+  });
+
+  it("toggling a category persists the choice", async () => {
+    const get = await mount({});
+    const inputs = document.querySelectorAll<HTMLInputElement>("#syncRows input");
+    inputs[0].checked = false;            // speeds is the first row
+    inputs[0].dispatchEvent(new Event("change"));
+    expect((get(["syncCategories"]).syncCategories as Record<string, boolean>).speeds).toBe(false);
+  });
+});
+
+describe("preset editor", () => {
+  it("renders eight inputs and normalizes on save", async () => {
+    const get = await mount({ speedPresets: [50, 75, 100, 125, 150, 175, 200, 250] });
+    const inputs = document.querySelectorAll<HTMLInputElement>("#presetEdit input");
+    expect(inputs).toHaveLength(8);
+    inputs[0].value = "9999"; // out of range → clamped to 300 and sorted last
+    byId("presetSaveBtn").click();
+    const saved = get(["speedPresets"]).speedPresets as number[];
+    expect(saved).toHaveLength(8);
+    expect(Math.max(...saved)).toBe(300);
+    expect([...saved]).toEqual([...saved].sort((a, b) => a - b));
+  });
+
+  it("reset restores the defaults", async () => {
+    const get = await mount({ speedPresets: [25, 25, 25, 25, 25, 25, 25, 25] });
+    byId("presetResetBtn").click();
+    expect(get(["speedPresets"]).speedPresets).toEqual([50, 75, 100, 125, 150, 175, 200, 250]);
+  });
+});
+
+describe("keyboard remap", () => {
+  it("captures a new key for an action", async () => {
+    const get = await mount({});
+    byId("keySlower").click(); // enter capture
+    document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyJ" }));
+    expect((get(["keymap"]).keymap as Record<string, string>).slower).toBe("KeyJ");
+    expect(byId("keySlower").textContent).toBe("J");
+  });
+
+  it("rejects a duplicate binding", async () => {
+    const get = await mount({});
+    byId("keyFaster").click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyA" })); // KeyA is slower's default
+    expect((get(["keymap"]).keymap as Record<string, string> | undefined)?.faster).toBeUndefined();
+  });
+});
+
+describe("saved values manager", () => {
+  it("lists saved speeds and delays and deletes one", async () => {
+    const get = await mount({
+      globalSpeed: 1.5,
+      domains: { "example.com": 2 },
+      syncTargets: { "example.com": 8 },
+      channels: { "twitch:foo": 1.25 },
+    });
+    const rows = document.querySelectorAll("#savedLists .saved-row");
+    expect(rows.length).toBeGreaterThanOrEqual(3); // global + site + channel
+    // The site row has two chips (speed + delay); delete the speed.
+    const siteRow = Array.from(rows).find((r) => r.textContent?.includes("example.com"))!;
+    const firstDel = siteRow.querySelector<HTMLButtonElement>(".saved-del")!;
+    firstDel.click();
+    expect((get(["domains"]).domains as Record<string, number>)["example.com"]).toBeUndefined();
+  });
+});
+
+describe("backup", () => {
+  it("export gathers settings without the device-only sync meta", async () => {
+    const calls: Blob[] = [];
+    (globalThis.URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = (b: Blob) => { calls.push(b); return "blob:x"; };
+    (globalThis.URL as unknown as { revokeObjectURL: (u: string) => void }).revokeObjectURL = () => {};
+    await mount({ globalSpeed: 1.5, syncCategories: { speeds: false } });
+    byId("exportBtn").click();
+    expect(calls).toHaveLength(1);
+    const text = await calls[0].text();
+    expect(text).toContain("globalSpeed");
+    expect(text).not.toContain("syncCategories");
+  });
+});

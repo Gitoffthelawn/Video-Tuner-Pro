@@ -130,7 +130,3 @@ export function setCategorySync(cat: Category, synced: boolean, done?: DoneCb): 
     to.set(items, () => from.remove(present, finish));
   });
 }
-
-export function loadSyncConfig(cb: (cfg: SyncConfig) => void): void {
-  whenReady(() => cb(getSyncConfig()));
-}

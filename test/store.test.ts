@@ -70,6 +70,30 @@ describe("routed STORE", () => {
     whenReady(() => { fired = true; });
     expect(fired).toBe(true); // mock get is synchronous → ready by now
   });
+
+  it("get(null) merges both areas (the export path)", async () => {
+    env.backing.sync.audioComp = true;
+    env.backing.local.syncCategories = { speeds: false };
+    env.backing.local.globalSpeed = 1.5; // speeds opted out → lives in local
+    const { STORE } = await freshStore(env.chrome);
+    let all: Record<string, unknown> = {};
+    STORE.get(null, (r) => { all = r; });
+    expect(all.audioComp).toBe(true);
+    expect(all.globalSpeed).toBe(1.5);
+  });
+});
+
+describe("routed STORE without a sync area", () => {
+  it("routes everything to local and migration is a no-op", async () => {
+    const env = makeChrome();
+    // Drop the sync area entirely (some Firefox configs).
+    (env.chrome.storage as { sync?: unknown }).sync = undefined;
+    const { STORE, setCategorySync } = await freshStore(env.chrome);
+    STORE.set({ globalSpeed: 2 });
+    expect(env.backing.local.globalSpeed).toBe(2);
+    setCategorySync("speeds", false); // nowhere to migrate to — just records intent
+    expect(env.backing.local.globalSpeed).toBe(2);
+  });
 });
 
 describe("setCategorySync migration", () => {

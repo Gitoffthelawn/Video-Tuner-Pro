@@ -27,6 +27,9 @@ export default defineConfig({
         "src/content/index.ts",
         "src/content/inject.ts",
         "src/popup/index.ts",
+        // Options page — browser-wired DOM glue; its pure logic lives in
+        // src/shared (presets / keymap / sync-config) and is unit-tested there.
+        "src/options/**",
         // Canvas drawing & DOM animation — low ROI / brittle to unit-test.
         "src/popup/graphs/**",
         "src/popup/sections.ts",
