@@ -1,7 +1,8 @@
-// MAIN-world probe (Twitch + YouTube). The isolated content script can't reach
-// the page's JS objects, so this tiny script runs in the page world, reads the
-// player's "latency to broadcaster"/"live latency" (the value the site's own
-// stats overlay shows), and publishes it to a DOM attribute — which IS visible
+// MAIN-world probe (Twitch + YouTube, plus a generic hls.js fallback for Kick /
+// w.tv). The isolated content script can't reach the page's JS objects, so this
+// tiny script runs in the page world, reads the player's "latency to
+// broadcaster"/"live latency" (the value the site's own stats overlay shows), and
+// publishes it to a DOM attribute — which IS visible
 // across worlds. The isolated script reads `data-vtp-latency` (live.js
 // streamLatency).
 //
@@ -65,6 +66,48 @@
     let lat = twitchPlayer ? twitchLatencyOf(twitchPlayer) : null;
     if (lat == null) { twitchPlayer = findTwitchPlayer(); lat = twitchPlayer ? twitchLatencyOf(twitchPlayer) : null; }
     return lat;
+  }
+
+  // Generic hls.js fallback (Kick, w.tv and any other site that streams through
+  // hls.js — VK Video Live uses DASH, so the buffered-ahead value covers it). An
+  // Hls instance exposes a live `latency` getter — the
+  // seconds behind the broadcast edge — and carries a `.media` element. The
+  // instance isn't on the DOM, but like the Twitch player it's reachable by
+  // walking the React fiber tree from the video/player. Best-effort: any failure
+  // just leaves the attribute unset and the badge falls back to buffered-ahead.
+  function isHls(o: any): boolean {
+    return o && typeof o.latency === "number" &&
+      (o.media instanceof HTMLMediaElement || typeof o.attachMedia === "function" || typeof o.recoverMediaError === "function");
+  }
+  function findHls(): any {
+    const roots = document.querySelectorAll("video, .video-player, [class*='player']");
+    for (const el of roots) {
+      let cur: any = el;
+      for (let depth = 0; depth < 30 && cur; depth++) {
+        for (const k in cur) {
+          if (k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$")) {
+            let f: any = cur[k];
+            for (let i = 0; i < 60 && f; i++) {
+              const p = f.memoizedProps || (f.stateNode && f.stateNode.props);
+              if (p) for (const pk in p) { if (isHls(p[pk])) return p[pk]; }
+              const s = f.memoizedState;
+              if (s && isHls(s.hls)) return s.hls;
+              f = f.return;
+            }
+          }
+        }
+        cur = cur.parentElement;
+      }
+    }
+    return null;
+  }
+  let hlsInst: any = null;
+  function hlsLatency(): number | null {
+    try {
+      if (!isHls(hlsInst)) hlsInst = findHls();
+      const l = hlsInst ? hlsInst.latency : null;
+      return typeof l === "number" && isFinite(l) && l > 0 ? l : null;
+    } catch (e) { return null; }
   }
 
   function youtubePlayer(): any {
@@ -144,7 +187,7 @@
   function tick() {
     try {
       const tw = twitchLatency();
-      const lat = tw != null ? tw : youtubeLatency();
+      const lat = tw != null ? tw : (youtubeLatency() ?? hlsLatency());
       const root = document.documentElement;
       if (!root) return;
       if (lat != null) root.setAttribute(ATTR, lat.toFixed(2));
