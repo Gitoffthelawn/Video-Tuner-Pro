@@ -19,25 +19,31 @@ const RED_ICON = {
   128: "icons/icon-red-128.png"
 };
 
-function reset(tabId?: number): void {
+// On Chrome MV3 these action APIs return a Promise that rejects asynchronously
+// when the tab is already gone ("No tab with id …"); a plain try/catch only
+// swallows a synchronous throw, so also absorb the async rejection.
+function call(fn: () => unknown): void {
   try {
-    api.action.setBadgeText({ text: "", tabId });
-    api.action.setIcon({ path: DEFAULT_ICON, tabId });
+    const r = fn() as { catch?: (cb: () => void) => void } | undefined;
+    if (r && typeof r.catch === "function") r.catch(() => {});
   } catch (e) { /* tab gone */ }
+}
+
+function reset(tabId?: number): void {
+  call(() => api.action.setBadgeText({ text: "", tabId }));
+  call(() => api.action.setIcon({ path: DEFAULT_ICON, tabId }));
 }
 
 api.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.action !== "icon" || !sender.tab) return;
   const tabId = sender.tab.id;
   if (msg.clear) { reset(tabId); return; }
-  try {
-    api.action.setBadgeText({ text: msg.text || "", tabId });
-    api.action.setBadgeBackgroundColor({ color: "#0a84ff", tabId });
-    if (api.action.setBadgeTextColor) {
-      api.action.setBadgeTextColor({ color: "#ffffff", tabId });
-    }
-    api.action.setIcon({ path: msg.live ? RED_ICON : DEFAULT_ICON, tabId });
-  } catch (e) { /* tab gone */ }
+  call(() => api.action.setBadgeText({ text: msg.text || "", tabId }));
+  call(() => api.action.setBadgeBackgroundColor({ color: "#0a84ff", tabId }));
+  if (api.action.setBadgeTextColor) {
+    call(() => api.action.setBadgeTextColor({ color: "#ffffff", tabId }));
+  }
+  call(() => api.action.setIcon({ path: msg.live ? RED_ICON : DEFAULT_ICON, tabId }));
 });
 
 // Clear badge + restore default icon when a tab starts navigating, so stale state

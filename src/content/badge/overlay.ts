@@ -38,7 +38,7 @@ function effectiveDuration(video: HTMLVideoElement): number {
 
 let timeBadgeEl: HTMLDivElement | null = null;
 let badgeTextEl: HTMLSpanElement | null = null;   // holds the speed/time text (so the pin stays put)
-let badgePinEl: HTMLSpanElement | null = null;    // the pin toggle on the right
+let badgePinEl: HTMLSpanElement | null = null;
 let timeBadgeHideTimer: Timer | undefined;
 let badgeVideo: HTMLVideoElement | null = null;   // cached primary video so mousemove stays cheap
 let badgeMoveHooked = false;

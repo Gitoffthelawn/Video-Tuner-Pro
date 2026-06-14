@@ -27,5 +27,5 @@ export const S = {
   audioCompRatio: 10,       // x:1, 1…20
   audioCompAttack: 0,       // s, 0…1
   audioCompRelease: 1,      // s, 0…1
-  audioCompGain: 10,        // make-up gain in dB, 0…24
+  audioCompGain: 0,         // make-up gain in dB, 0…24
 };
