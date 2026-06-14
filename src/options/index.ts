@@ -1,18 +1,24 @@
-// Options page entry. Localize the static markup, then build each section once
-// the selective-sync config has loaded (so it reads/writes the right areas).
-import { localize } from "../popup/i18n.js";
+// Options page entry. Apply the theme and localize the static markup right away,
+// then — once the selective-sync config has loaded and the saved language is
+// applied — build each section in that language and from the right storage area.
+import { localize, loadLang } from "../popup/i18n.js";
 import { whenReady } from "../shared/store.js";
-import { initPresets } from "./presets.js";
+import { initTheme } from "../shared/theme.js";
+import { initAppearance } from "./appearance.js";
 import { initKeys } from "./keys.js";
 import { initSaved } from "./saved.js";
 import { initSync } from "./sync.js";
 import { initBackup } from "./backup.js";
 
+initTheme();
 localize();
 whenReady(() => {
-  initPresets();
-  initKeys();
-  initSaved();
-  initSync();
-  initBackup();
+  loadLang(() => {
+    localize();
+    initAppearance();
+    initKeys();
+    initSaved();
+    initSync();
+    initBackup();
+  });
 });

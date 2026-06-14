@@ -8,8 +8,8 @@
 // startup; entry points call whenReady() before their first read so an opted-out
 // category isn't briefly read from the wrong area on a cold load.
 import {
-  KEYS_BY_CATEGORY, SYNC_META_KEY, DEFAULT_SYNC,
-  normalizeConfig, groupKeysByArea, type Category, type SyncConfig,
+  KEYS_BY_CATEGORY, SYNC_META_KEY, SYNC_MASTER_KEY, DEFAULT_SYNC, DEFAULT_MASTER,
+  normalizeConfig, effectiveConfig, groupKeysByArea, type Category, type SyncConfig,
 } from "./sync-config.js";
 
 const api = (typeof browser !== "undefined") ? browser : chrome;
@@ -27,23 +27,34 @@ type DoneCb = () => void;
 const areaObj = (name: "sync" | "local") => (name === "sync" ? SYNC : LOCAL);
 
 // --- Cached config -----------------------------------------------------------
-let cfg: SyncConfig = { ...DEFAULT_SYNC };
+// `prefs` is the user's per-category intent; `master` is the global switch. The
+// router uses their combination (`cfg` — everything-local while master is off).
+let prefs: SyncConfig = { ...DEFAULT_SYNC };
+let master = DEFAULT_MASTER;
+let cfg: SyncConfig = effectiveConfig(prefs, master);
 let ready = false;
 const readyWaiters: DoneCb[] = [];
 
-function applyConfig(raw: unknown): void {
-  cfg = normalizeConfig(raw);
+function recompute(): void {
+  cfg = effectiveConfig(prefs, master);
 }
 
-LOCAL.get([SYNC_META_KEY], (r) => {
-  applyConfig(r[SYNC_META_KEY]);
+LOCAL.get([SYNC_META_KEY, SYNC_MASTER_KEY], (r) => {
+  prefs = normalizeConfig(r[SYNC_META_KEY]);
+  if (typeof r[SYNC_MASTER_KEY] === "boolean") master = r[SYNC_MASTER_KEY] as boolean;
+  recompute();
   ready = true;
   while (readyWaiters.length) readyWaiters.shift()!();
 });
 
 // Keep the cached config live when another context (the options page) changes it.
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes[SYNC_META_KEY]) applyConfig(changes[SYNC_META_KEY].newValue);
+  if (area !== "local") return;
+  if (changes[SYNC_META_KEY]) prefs = normalizeConfig(changes[SYNC_META_KEY].newValue);
+  if (changes[SYNC_MASTER_KEY] && typeof changes[SYNC_MASTER_KEY].newValue === "boolean") {
+    master = changes[SYNC_MASTER_KEY].newValue as boolean;
+  }
+  if (changes[SYNC_META_KEY] || changes[SYNC_MASTER_KEY]) recompute();
 });
 
 // Run cb once the sync config has loaded (immediately if it already has).
@@ -52,8 +63,14 @@ export function whenReady(cb: DoneCb): void {
   else readyWaiters.push(cb);
 }
 
+// The per-category preferences (what the UI shows), independent of the master
+// switch. Use getSyncMaster() for the switch state itself.
 export function getSyncConfig(): SyncConfig {
-  return { ...cfg };
+  return { ...prefs };
+}
+
+export function getSyncMaster(): boolean {
+  return master;
 }
 
 // --- Multi-area fan-out, collapsed to a single callback ----------------------
@@ -109,24 +126,51 @@ export const STORE = {
   },
 };
 
-// --- Toggling a category's sync: migrate its keys between the two areas -------
-function persistConfig(done?: DoneCb): void {
-  LOCAL.set({ [SYNC_META_KEY]: cfg }, () => done?.());
+// --- Migrating keys between the two areas as preferences change --------------
+type Area = typeof SYNC | typeof LOCAL;
+
+function persistPrefs(done?: DoneCb): void {
+  LOCAL.set({ [SYNC_META_KEY]: prefs }, () => done?.());
+}
+function persistMaster(done?: DoneCb): void {
+  LOCAL.set({ [SYNC_MASTER_KEY]: master }, () => done?.());
 }
 
-export function setCategorySync(cat: Category, synced: boolean, done?: DoneCb): void {
-  const was = cfg[cat];
-  cfg = { ...cfg, [cat]: synced };
-  // No sync area, or no actual change → just record the preference.
-  if (!HAS_SYNC || was === synced) { persistConfig(done); return; }
-
-  const from = synced ? LOCAL : SYNC;   // where the keys currently live
-  const to = synced ? SYNC : LOCAL;     // where they should move to
+// Move one category's stored keys from one area to the other (a no-op when none
+// are present). Persisting the new preference is the caller's job.
+function migrateCategory(cat: Category, from: Area, to: Area, done: DoneCb): void {
   const keys = KEYS_BY_CATEGORY[cat];
   from.get(keys, (items) => {
     const present = Object.keys(items);
-    const finish = () => persistConfig(done);
-    if (!present.length) { finish(); return; }
-    to.set(items, () => from.remove(present, finish));
+    if (!present.length) { done(); return; }
+    to.set(items, () => from.remove(present, done));
   });
+}
+
+export function setCategorySync(cat: Category, synced: boolean, done?: DoneCb): void {
+  const was = prefs[cat];
+  prefs = { ...prefs, [cat]: synced };
+  recompute();
+  // Nothing to migrate when there's no sync area, the master switch already keeps
+  // everything local, or the preference didn't actually change — just record it.
+  if (!HAS_SYNC || !master || was === synced) { persistPrefs(done); return; }
+  const from = synced ? LOCAL : SYNC;   // where the keys currently live
+  const to = synced ? SYNC : LOCAL;     // where they should move to
+  migrateCategory(cat, from, to, () => persistPrefs(done));
+}
+
+// Flip the master switch: categories the user wants synced migrate between local
+// and sync; categories already kept local don't move. Preferences are untouched,
+// so turning the switch back on restores exactly what was synced before.
+export function setMasterSync(on: boolean, done?: DoneCb): void {
+  if (master === on) { persistMaster(done); return; }
+  master = on;
+  recompute();
+  const cats = (Object.keys(prefs) as Category[]).filter((c) => prefs[c]);
+  if (!HAS_SYNC || !cats.length) { persistMaster(done); return; }
+  const from = on ? LOCAL : SYNC;   // on: pull synced categories up; off: push them down
+  const to = on ? SYNC : LOCAL;
+  let pending = cats.length;
+  const one = () => { if (--pending === 0) persistMaster(done); };
+  for (const c of cats) migrateCategory(c, from, to, one);
 }

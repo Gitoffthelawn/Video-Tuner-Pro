@@ -60,11 +60,21 @@ body {
     }
 }
 
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .card-desc {
     margin-top: 4px;
     font-size: 12px;
     line-height: 1.5;
     color: var(--muted);
+    /* Honour hard newlines: a couple of descriptions carry one so they break at
+       the sentence boundary instead of wherever the text happens to wrap. */
+    white-space: pre-line;
 }
 
 .card-actions {
@@ -98,38 +108,61 @@ body {
     color: var(--text);
 }
 
-/* --- Preset editor -------------------------------------------------------- */
-.preset-edit {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-top: 14px;
-}
+/* Transient success / failure flash on an action button (Backup export/import). */
+.btn-ok { background: #34c759; color: #fff; }
+.btn-err { background: #ff3b30; color: #fff; }
+.btn-ok:hover, .btn-err:hover { filter: none; }
 
-.preset-cell {
+/* --- General fields (theme / language) ------------------------------------ */
+.opt-field {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+
+    & + .opt-field { border-top: 1px solid var(--seg); }
+}
+
+/* Block variant: label on its own line, control (the language grid) below it. */
+.opt-field-block {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.opt-field-label { font-size: 13px; }
+
+.opt-actions { display: flex; gap: 8px; }
+
+/* Segmented control — same look as the popup's scope picker (speed.css): a
+   bordered group of filled cells, the selected one filled with the accent. The
+   theme picker is a single row; the language picker is the same cells in a grid. */
+.seg,
+.lang-grid {
+    display: grid;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--track);
+    border-radius: 9px;
+}
+
+.seg { grid-auto-flow: column; }
+.lang-grid { grid-template-columns: repeat(3, 1fr); }
+
+.seg-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
     background: var(--seg);
-    border-radius: 8px;
-    padding: 0 8px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
 
-    input {
-        width: 100%;
-        padding: 9px 2px;
-        border: none;
-        background: none;
-        color: var(--text);
-        font-size: 14px;
-        font-weight: 600;
-        text-align: right;
-        -moz-appearance: textfield;
-
-        &:focus { outline: none; }
-        &::-webkit-outer-spin-button,
-        &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-    }
-
-    .pct { color: var(--muted); font-size: 13px; padding-left: 2px; }
+    &:hover:not(.is-active) { background: var(--track); }
+    &.is-active { background: var(--accent); color: #fff; font-weight: 600; }
 }
 
 /* --- Keyboard rows -------------------------------------------------------- */
@@ -172,7 +205,15 @@ body {
 }
 
 /* --- Saved-value lists ---------------------------------------------------- */
-.saved-group { margin-top: 16px; }
+.saved-cat { margin-top: 16px; }
+
+.saved-cat-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.saved-group { margin-top: 12px; }
 
 .saved-group-title {
     font-size: 12px;
@@ -239,19 +280,37 @@ body {
 }
 
 /* --- Sync rows (switches, copied from the popup look) --------------------- */
-.sync-rows { margin-top: 14px; }
+.sync-rows {
+    margin-top: 14px;
+    transition: opacity 0.15s;
+
+    &.is-off { opacity: 0.4; pointer-events: none; }
+}
 
 .sync-cat-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 9px 0;
+    padding: 11px 0;
 
     & + .sync-cat-row { border-top: 1px solid var(--seg); }
 }
 
+.sync-cat-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
 .sync-cat-label { font-size: 13px; }
+
+.sync-cat-desc {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--muted);
+}
 
 .switch {
     position: relative;
@@ -291,13 +350,4 @@ body {
     background: #fff;
     box-shadow: 0 1px 2px var(--shadow);
     transition: transform 0.2s;
-}
-
-/* --- Backup status -------------------------------------------------------- */
-.backup-msg {
-    display: inline-block;
-    margin-top: 10px;
-    font-size: 12px;
-    color: var(--muted);
-    min-height: 16px;
 }

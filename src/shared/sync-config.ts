@@ -4,11 +4,11 @@
 // device (storage.local). The live routing layer (./store.ts) reads these maps
 // to decide which area a key lives in.
 
-export type Category = "speeds" | "delays" | "audio" | "shortcuts" | "presets" | "general";
+export type Category = "speeds" | "delays" | "audio" | "shortcuts" | "general";
 
 // The categories the user can toggle, in display order. "general" is the catch-all
-// for everything else (badge position, misc toggles, one-time "seen" flags).
-export const CATEGORIES: Category[] = ["speeds", "delays", "audio", "shortcuts", "presets", "general"];
+// for everything else (theme, language, badge toggles, one-time "seen" flags).
+export const CATEGORIES: Category[] = ["speeds", "delays", "audio", "shortcuts", "general"];
 
 // Every known storage key → its category. Anything not listed falls through to
 // "general" (see categoryOf), so a forgotten key still has a deterministic home.
@@ -35,9 +35,9 @@ export const KEY_CATEGORY: Record<string, Category> = {
   // Keyboard shortcuts: the on/off toggle and the key map.
   keyboard: "shortcuts",
   keymap: "shortcuts",
-  // Editable speed presets.
-  speedPresets: "presets",
   // General toggles / per-device-ish bits.
+  theme: "general",
+  uiLang: "general",
   showRemaining: "general",
   streamBadge: "general",
   superTheater: "general",
@@ -51,12 +51,27 @@ export const KEY_CATEGORY: Record<string, Category> = {
 // sync" is a per-device choice. Never routed (the router reads it to route).
 export const SYNC_META_KEY = "syncCategories";
 
+// Master sync switch. When off, every category routes to local regardless of its
+// per-category preference; the preferences are remembered and restored when it's
+// turned back on. Also device-local, and defaults on (prior behaviour).
+export const SYNC_MASTER_KEY = "syncMaster";
+export const DEFAULT_MASTER = true;
+
 // Default: everything synced — matches the pre-feature behaviour, so existing
 // users (and a fresh install) keep cross-device sync until they opt out.
 export type SyncConfig = Record<Category, boolean>;
 export const DEFAULT_SYNC: SyncConfig = {
-  speeds: true, delays: true, audio: true, shortcuts: true, presets: true, general: true,
+  speeds: true, delays: true, audio: true, shortcuts: true, general: true,
 };
+export const ALL_LOCAL: SyncConfig = {
+  speeds: false, delays: false, audio: false, shortcuts: false, general: false,
+};
+
+// The config the router actually uses: the per-category preferences when the
+// master switch is on, or everything-local when it's off.
+export function effectiveConfig(prefs: SyncConfig, master: boolean): SyncConfig {
+  return master ? { ...prefs } : { ...ALL_LOCAL };
+}
 
 export function categoryOf(key: string): Category {
   return KEY_CATEGORY[key] ?? "general";

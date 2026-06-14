@@ -52,15 +52,41 @@ function groupEl(titleKey: string, rows: HTMLElement[]): HTMLElement {
   title.className = "saved-group-title";
   title.textContent = msg(titleKey) || titleKey;
   g.append(title);
-  if (rows.length) {
-    for (const r of rows) g.append(r);
+  for (const r of rows) g.append(r);
+  return g;
+}
+
+// A top-level category (speeds / delays): its title, its non-empty scope groups
+// (or one "nothing saved" line), and a Reset that forgets everything in it — a
+// full button in a footer row, matching the Reset blocks on the other cards.
+function catEl(titleKey: string, onReset: () => void, groups: Array<[string, HTMLElement[]]>): HTMLElement {
+  const cat = document.createElement("div");
+  cat.className = "saved-cat";
+
+  const title = document.createElement("div");
+  title.className = "saved-cat-title";
+  title.textContent = msg(titleKey) || titleKey;
+  cat.append(title);
+
+  const filled = groups.filter(([, rows]) => rows.length);
+  if (filled.length) {
+    for (const [k, rows] of filled) cat.append(groupEl(k, rows));
+    const actions = document.createElement("div");
+    actions.className = "card-actions";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "btn-action btn-reset";
+    reset.textContent = msg("optResetDefaults") || "Reset to defaults";
+    reset.addEventListener("click", onReset);
+    actions.append(reset);
+    cat.append(actions);
   } else {
     const empty = document.createElement("div");
     empty.className = "saved-empty";
     empty.textContent = msg("optSavedEmpty") || "Nothing saved yet.";
-    g.append(empty);
+    cat.append(empty);
   }
-  return g;
+  return cat;
 }
 
 // Remove one key from a stored map (or clear a scalar) then re-render.
@@ -83,38 +109,43 @@ export function render(): void {
       const globalSpeed = r.globalSpeed as number | undefined;
       const globalDelay = (r.syncTargetGlobal ?? r.liveSyncTarget) as number | undefined;
 
-      // --- Global -------------------------------------------------------------
-      const globalChips: Chip[] = [];
-      if (globalSpeed != null) globalChips.push({ label: pct(globalSpeed), onDelete: () => STORE.remove("globalSpeed", render) });
-      if (globalDelay != null) globalChips.push({ label: secs(globalDelay), onDelete: () => STORE.remove(["syncTargetGlobal", "liveSyncTarget"], render) });
-      const globalRows = globalChips.length ? [rowEl(msg("scopeGlobal") || "Global", globalChips)] : [];
+      const globalName = msg("scopeGlobal") || "Global";
+      const byName = (a: HTMLElement, b: HTMLElement) =>
+        (a.firstChild!.textContent || "").localeCompare(b.firstChild!.textContent || "");
 
-      // --- Sites --------------------------------------------------------------
-      const siteRows: HTMLElement[] = [];
-      for (const host of new Set([...Object.keys(domains), ...Object.keys(siteDelays)])) {
-        const chips: Chip[] = [];
-        if (domains[host] != null) chips.push({ label: pct(domains[host]), onDelete: () => deleteFromMap("domains", host) });
-        if (siteDelays[host] != null) chips.push({ label: secs(siteDelays[host]), onDelete: () => deleteFromMap("syncTargets", host) });
-        siteRows.push(rowEl(host, chips));
-      }
-      siteRows.sort((a, b) => (a.firstChild!.textContent || "").localeCompare(b.firstChild!.textContent || ""));
+      // One row per scoped value, with a single remove chip. Speeds and delays are
+      // kept in separate categories so each value's meaning is unambiguous.
+      const speedGlobal = globalSpeed != null
+        ? [rowEl(globalName, [{ label: pct(globalSpeed), onDelete: () => STORE.remove("globalSpeed", render) }])] : [];
+      const speedSites = Object.keys(domains)
+        .map((host) => rowEl(host, [{ label: pct(domains[host]), onDelete: () => deleteFromMap("domains", host) }]))
+        .sort(byName);
+      const speedChans = Object.keys(channels)
+        .map((key) => rowEl(prettyChannel(key), [{ label: pct(channels[key]), onDelete: () => deleteFromMap("channels", key) }]))
+        .sort(byName);
 
-      // --- Channels -----------------------------------------------------------
-      const chanRows: HTMLElement[] = [];
-      for (const key of new Set([...Object.keys(channels), ...Object.keys(chanDelays)])) {
-        const chips: Chip[] = [];
-        if (channels[key] != null) chips.push({ label: pct(channels[key]), onDelete: () => deleteFromMap("channels", key) });
-        if (chanDelays[key] != null) chips.push({ label: secs(chanDelays[key]), onDelete: () => deleteFromMap("syncTargetChannels", key) });
-        chanRows.push(rowEl(prettyChannel(key), chips));
-      }
-      chanRows.sort((a, b) => (a.firstChild!.textContent || "").localeCompare(b.firstChild!.textContent || ""));
+      const delayGlobal = globalDelay != null
+        ? [rowEl(globalName, [{ label: secs(globalDelay), onDelete: () => STORE.remove(["syncTargetGlobal", "liveSyncTarget"], render) }])] : [];
+      const delaySites = Object.keys(siteDelays)
+        .map((host) => rowEl(host, [{ label: secs(siteDelays[host]), onDelete: () => deleteFromMap("syncTargets", host) }]))
+        .sort(byName);
+      const delayChans = Object.keys(chanDelays)
+        .map((key) => rowEl(prettyChannel(key), [{ label: secs(chanDelays[key]), onDelete: () => deleteFromMap("syncTargetChannels", key) }]))
+        .sort(byName);
 
       const el = root();
       el.textContent = "";
       el.append(
-        groupEl("optSavedGlobal", globalRows),
-        groupEl("optSavedSites", siteRows),
-        groupEl("optSavedChannels", chanRows),
+        catEl("catSpeeds", () => STORE.remove(["globalSpeed", "domains", "channels"], render), [
+          ["optSavedGlobal", speedGlobal],
+          ["optSavedSites", speedSites],
+          ["optSavedChannels", speedChans],
+        ]),
+        catEl("catDelays", () => STORE.remove(["syncTargetGlobal", "liveSyncTarget", "syncTargets", "syncTargetChannels"], render), [
+          ["optSavedGlobal", delayGlobal],
+          ["optSavedSites", delaySites],
+          ["optSavedChannels", delayChans],
+        ]),
       );
     },
   );
