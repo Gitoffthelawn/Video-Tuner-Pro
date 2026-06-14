@@ -5,6 +5,8 @@ import { STORE, OUR_AREAS, whenReady } from "./platform/storage.js";
 import { clamp, clampTarget, clampNum } from "./core/clamp.js";
 import { getDomain } from "./core/domain.js";
 import { resolveSpeed, resolveSyncTarget } from "./core/resolve.js";
+import { presetFractions } from "../shared/presets.js";
+import { normalizeKeymap } from "../shared/keymap.js";
 import { S } from "./state.js";
 import { applyAll } from "./speed.js";
 import { controlLive } from "./live/sync.js";
@@ -51,7 +53,8 @@ function loadSpeed() {
     ["domains", "channels", "globalSpeed", "liveSync", "liveSyncTarget", "syncTargets",
      "syncTargetChannels", "syncTargetGlobal", "badgePos", "badgePinned",
      "audioComp", "audioCompThreshold", "audioCompKnee", "audioCompRatio",
-     "audioCompAttack", "audioCompRelease", "audioCompGain", "showRemaining", "streamBadge", "keyboard"],
+     "audioCompAttack", "audioCompRelease", "audioCompGain", "showRemaining", "streamBadge",
+     "keyboard", "keymap", "speedPresets"],
     (result) => {
       const domains = (result.domains || {}) as Record<string, number>;
       const channels = (result.channels || {}) as Record<string, number>;
@@ -63,6 +66,8 @@ function loadSpeed() {
       S.showRemaining = result.showRemaining !== false;
       S.streamBadge = result.streamBadge !== false;
       S.keyboardEnabled = result.keyboard !== false;
+      S.keymap = normalizeKeymap(result.keymap);
+      S.presets = presetFractions(result.speedPresets);
       S.liveSyncEnabled = result.liveSync !== false;
       // Allowed delay resolves by scope: channel > site > global > 5s. The legacy
       // `liveSyncTarget` acts as the old global fallback.
@@ -183,6 +188,8 @@ api.storage.onChanged.addListener((changes, area) => {
     flashBadge();      // when unpinned, resumes the auto-hide countdown
   }
   if (changes.keyboard) S.keyboardEnabled = !!changes.keyboard.newValue;
+  if (changes.keymap) S.keymap = normalizeKeymap(changes.keymap.newValue);
+  if (changes.speedPresets) S.presets = presetFractions(changes.speedPresets.newValue);
   let audioChanged = false;
   if (changes.audioComp) { S.audioCompEnabled = !!changes.audioComp.newValue; audioChanged = true; }
   if (changes.audioCompThreshold) { S.audioCompThreshold = clampNum(changes.audioCompThreshold.newValue, -100, 0, -60); audioChanged = true; }
