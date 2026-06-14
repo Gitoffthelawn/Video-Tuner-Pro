@@ -186,18 +186,15 @@ function renderBadge(v: HTMLVideoElement): void {
   const speed = v.playbackRate || S.currentSpeed || 1;
   const sp = Math.round(speed * 100) / 100;
   if (onStreamPage()) {
-    // Live: remaining time is meaningless (no end). Prefer the latency to the
-    // broadcaster where the site exposes it (Twitch/YouTube) — then the buffered
-    // ahead seconds follow in parentheses: "speed × · latency (buffer)". Without
-    // site latency the buffer IS the shown value, so no parenthetical.
+    // Live: remaining time is meaningless (no end). Show a single value — the
+    // latency to the broadcaster where the site exposes it (Twitch/YouTube),
+    // otherwise the seconds buffered ahead, which is the same lag-behind-live.
     const lat = streamLatency();
     const buf = forwardBuffer(v);
     // "⚠" when we're far behind but the buffer is too thin to catch up at all.
     const target = Math.max(S.liveSyncTarget, MIN_FORWARD_BUFFER);
     const warn = S.liveSyncEnabled && catchupBufferLimited(lat, buf, target) ? " ⚠" : "";
-    txt.textContent = (lat != null
-      ? `${sp}× · ${lat.toFixed(2)}s (${buf.toFixed(2)}s)`
-      : `${sp}× · ${buf.toFixed(2)}s`) + warn;
+    txt.textContent = `${sp}× · ${(lat != null ? lat : buf).toFixed(2)}s` + warn;
   } else {
     const dur = v.duration;
     const eff = effectiveDuration(v);

@@ -76,11 +76,11 @@ describe("updateTimeBadge — VOD rendering", () => {
 });
 
 describe("updateTimeBadge — live rendering", () => {
-  it("shows latency with buffered-ahead in parentheses when the site exposes latency", () => {
+  it("shows the latency alone when the site exposes it (no buffer parenthetical)", () => {
     h.onStream = true; h.latency = 3; h.buffer = 5;
     h.primary = fakeVideo();
     updateTimeBadge();
-    expect(badgeText()).toBe("1× · 3.00s (5.00s)");
+    expect(badgeText()).toBe("1× · 3.00s");
   });
 
   it("shows just the buffered-ahead seconds when there is no site latency", () => {
