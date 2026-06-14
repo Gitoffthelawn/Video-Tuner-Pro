@@ -18,15 +18,12 @@ describe("rmsToDb", () => {
 
 describe("deriveOutDb", () => {
   it("silence stays silent", () => {
-    expect(deriveOutDb(-100, -6, true, 10)).toBe(-100);
+    expect(deriveOutDb(-100, -6)).toBe(-100);
   });
-  it("output = input + reduction + make-up when on", () => {
-    expect(deriveOutDb(-30, -6, true, 10)).toBe(-26);
+  it("output = input + reduction (compression only, no make-up)", () => {
+    expect(deriveOutDb(-30, -6)).toBe(-36);
   });
-  it("no make-up when off", () => {
-    expect(deriveOutDb(-30, -6, false, 10)).toBe(-36);
-  });
-  it("transparent (no reduction, no make-up) → output == input", () => {
-    expect(deriveOutDb(-30, 0, false, 10)).toBe(-30);
+  it("transparent (no reduction) → output == input", () => {
+    expect(deriveOutDb(-30, 0)).toBe(-30);
   });
 });
