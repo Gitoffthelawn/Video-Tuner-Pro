@@ -13,6 +13,11 @@ import { updateTimeBadge, flashBadge } from "./badge/overlay.js";
 
 export function persistDomainSpeed(speed: number): void {
   if (!ctxValid()) return;
+  // Only the top frame persists the per-site speed. The popup broadcasts
+  // "rememberSite" to every frame, and each write is a read-modify-write of the
+  // whole `domains` map — so a subframe (e.g. YouTube's accounts.youtube.com
+  // login iframe) racing the main frame can clobber the real site's entry.
+  if (window.top !== window) return;
   STORE.get(["domains"], (result) => {
     const domains = (result.domains || {}) as Record<string, number>;
     domains[getDomain()] = speed;
@@ -22,6 +27,7 @@ export function persistDomainSpeed(speed: number): void {
 
 export function persistChannelSpeed(speed: number): void {
   if (!ctxValid()) return;
+  if (window.top !== window) return; // top frame only — same multi-frame write race as persistDomainSpeed
   const keys = channelKeys();
   if (!keys.length) return;
   STORE.get(["channels"], (result) => {
