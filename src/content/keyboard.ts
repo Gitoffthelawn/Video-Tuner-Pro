@@ -36,7 +36,7 @@ document.addEventListener("keydown", (e) => {
 
   e.preventDefault();
   const step = e.shiftKey ? BIG_STEP : STEP;
-  if (e.code === "KeyD") setSpeed(S.currentSpeed + step, false, true);   // increase
-  else if (e.code === "KeyA") setSpeed(S.currentSpeed - step, false, true);  // decrease
+  if (e.code === "KeyD") setSpeed(S.currentSpeed + step, false, true);
+  else if (e.code === "KeyA") setSpeed(S.currentSpeed - step, false, true);
   else if (e.code === "KeyR") setSpeed(1.0, false, true);
 }, true);

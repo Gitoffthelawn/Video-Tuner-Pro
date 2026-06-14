@@ -26,8 +26,8 @@ export function persistChannelSpeed(speed: number): void {
   if (!keys.length) return;
   STORE.get(["channels"], (result) => {
     const channels = (result.channels || {}) as Record<string, number>;
-    for (const k of keys) delete channels[k];   // drop any other-form duplicate
-    channels[keys[0]] = speed;                   // store under the canonical key
+    for (const k of keys) delete channels[k];
+    channels[keys[0]] = speed;
     STORE.set({ channels });
   });
 }

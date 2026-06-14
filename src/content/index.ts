@@ -67,7 +67,7 @@ function loadSpeed() {
       S.audioCompRatio = clampNum(result.audioCompRatio, 1, 20, 10);
       S.audioCompAttack = clampNum(result.audioCompAttack, 0, 1, 0);
       S.audioCompRelease = clampNum(result.audioCompRelease, 0, 1, 1);
-      S.audioCompGain = clampNum(result.audioCompGain, 0, 24, 10);
+      S.audioCompGain = clampNum(result.audioCompGain, 0, 24, 0);
       applyResolved(domains, channels);
       applyAll();
       // A live stream never inherits a saved speed — sync (or 100%) takes over.

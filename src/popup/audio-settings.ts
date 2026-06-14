@@ -48,7 +48,7 @@ export function loadAudioSettings(): void {
     (r) => {
       reflectAudioUI({
         enabled: r.audioComp !== false,
-        gain: clampNum(r.audioCompGain, 0, 24, 10),
+        gain: clampNum(r.audioCompGain, 0, 24, 0),
         threshold: clampNum(r.audioCompThreshold, -100, 0, -60),
         knee: clampNum(r.audioCompKnee, 0, 40, 30),
         ratio: clampNum(r.audioCompRatio, 1, 20, 10),
@@ -95,7 +95,6 @@ ADV.forEach(([id, key, lo, hi, def]) => {
   });
 });
 
-// Apply a preset: fill every slider, persist, and switch compression on.
 function applyComp(p: CompParams): void {
   reflectAudioUI({ enabled: true, ...p });
   saveAudio({ ...compToStorage(p), audioComp: true });
