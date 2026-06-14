@@ -1,7 +1,7 @@
 import { ctxValid } from "../platform/browser.js";
 import { S } from "../state.js";
 import { primaryVideo } from "../videos.js";
-import { translationActive, compOn } from "./translation.js";
+import { translationActive } from "./translation.js";
 import { audioContext, audioGraphs } from "./routing.js";
 import { rmsToDb, deriveOutDb } from "./levels.js";
 import type { AudioGraph, AudioLevels } from "./types.js";
@@ -19,7 +19,7 @@ function analyserDb(an: AnalyserNode): number {
 
 function audioOutDb(g: AudioGraph, inDb: number): number {
   const reduction = (g.comp && typeof g.comp.reduction === "number") ? g.comp.reduction : 0;
-  return deriveOutDb(inDb, reduction, compOn(), S.audioCompGain);
+  return deriveOutDb(inDb, reduction);
 }
 
 export function audioLevels(): AudioLevels {
