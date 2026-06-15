@@ -7,7 +7,19 @@ import { normalizeHost } from "./core/domain.js";
 import { tweenSlider } from "./core/tween-slider.js";
 import { tweenNumber } from "./core/tween-number.js";
 import { movePill } from "./core/seg-pill.js";
+import { normalizePresets } from "../shared/presets.js";
 import { byId } from "./dom.js";
+
+// Stamp the editable preset values onto the grid buttons (DOM = sorted order, so
+// the ⇧N hint matches the Shift+N hotkey). data-key / .extra stay put.
+function applyPresets(percents: number[]): void {
+  document.querySelectorAll<HTMLElement>(".btn-speed").forEach((btn, i) => {
+    const pct = percents[i];
+    if (pct == null) return;
+    btn.dataset.percent = String(pct);
+    btn.textContent = pct + "%";
+  });
+}
 
 // `animate` glides the thumb to the new value (preset / ± / reset); the readout
 // and active preset snap to the target so they don't flicker through the glide.
@@ -224,6 +236,7 @@ function fallbackFromStorage(animate = false): void {
 }
 
 export async function init(): Promise<void> {
+  STORE.get(["speedPresets"], (r) => applyPresets(normalizePresets(r.speedPresets)));
   const tab = await getActiveTab();
   ctx.activeTabId = tab?.id ?? null;
 

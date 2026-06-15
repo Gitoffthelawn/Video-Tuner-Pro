@@ -35,18 +35,24 @@ const jsEntries = {
   content: join(SRC, "content/index.ts"),
   background: join(SRC, "background/index.ts"),
   "popup/popup": join(SRC, "popup/index.ts"),
+  "options/options": join(SRC, "options/index.ts"),
   inject: join(SRC, "content/inject.ts"),   // MAIN-world Twitch/YouTube latency probe
 };
+
+// HTML/CSS page bundles: each <dir>/<name>.html links a bundled <name>.js/.css.
+const PAGES = ["popup/popup", "options/options"];
 
 function copyStatics(out, target) {
   cpSync(join(SRC, "_locales"), join(out, "_locales"), { recursive: true });
   cpSync(join(SRC, "icons"), join(out, "icons"), { recursive: true });
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifestFor(target), null, 2) + "\n");
-  // popup.html: drop comments and collapse indentation (it links popup.css/.js).
-  let html = readFileSync(join(SRC, "popup/popup.html"), "utf8");
-  if (!DEV) html = html.replace(/<!--[\s\S]*?-->/g, "").replace(/\n\s*/g, "\n").trim();
-  mkdirSync(join(out, "popup"), { recursive: true });
-  writeFileSync(join(out, "popup/popup.html"), html);
+  // Each page's .html: drop comments and collapse indentation (it links .css/.js).
+  for (const page of PAGES) {
+    let html = readFileSync(join(SRC, page + ".html"), "utf8");
+    if (!DEV) html = html.replace(/<!--[\s\S]*?-->/g, "").replace(/\n\s*/g, "\n").trim();
+    mkdirSync(join(out, page, ".."), { recursive: true });
+    writeFileSync(join(out, page + ".html"), html);
+  }
 }
 
 // Lightning CSS bundles the ./styles/*.css partials @import-ed by popup.css,
@@ -55,9 +61,9 @@ function copyStatics(out, target) {
 // so the authored nested CSS compiles to plain selectors that work everywhere.
 const CSS_TARGETS = { chrome: 100 << 16, firefox: 140 << 16 };
 
-function buildCss(out) {
+function buildCssPage(out, page) {
   const { code, map } = bundleCss({
-    filename: join(SRC, "popup/popup.css"),
+    filename: join(SRC, page + ".css"),
     minify: !DEV,
     sourceMap: DEV,
     targets: CSS_TARGETS,
@@ -67,7 +73,11 @@ function buildCss(out) {
     const inline = Buffer.from(map).toString("base64");
     css = Buffer.concat([code, Buffer.from(`\n/*# sourceMappingURL=data:application/json;base64,${inline} */\n`)]);
   }
-  writeFileSync(join(out, "popup/popup.css"), css);
+  writeFileSync(join(out, page + ".css"), css);
+}
+
+function buildCss(out) {
+  for (const page of PAGES) buildCssPage(out, page);
 }
 
 async function buildTarget(target) {
@@ -92,10 +102,10 @@ async function buildTarget(target) {
     const cJs = await context(js);
     await cJs.watch();
     buildCss(out);
-    // Lightning CSS has no watcher of its own — rebuild on any change under
-    // src/popup (popup.css or styles/*.css), debounced.
+    // Lightning CSS has no watcher of its own — rebuild on any .css change under
+    // src (popup/options entry + their styles/* partials), debounced.
     let t = null;
-    watch(join(SRC, "popup"), { recursive: true }, (_ev, file) => {
+    watch(SRC, { recursive: true }, (_ev, file) => {
       if (!file || !file.endsWith(".css")) return;
       clearTimeout(t);
       t = setTimeout(() => {
