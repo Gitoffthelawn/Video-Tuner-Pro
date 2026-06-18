@@ -1,8 +1,9 @@
 name: CI
 
-# One ordered pipeline, cheapest-first so a failure short-circuits before the
-# expensive steps run: lint → unit → e2e. On pull requests a Claude code-quality
-# review runs last, only once everything else is green.
+# lint is the cheap fast-fail gate; unit and e2e then run in parallel (both only
+# need lint), so a failure in the basics short-circuits before any tests run while
+# the two independent test layers still finish as fast as possible. On pull
+# requests a Claude code-quality review runs last, once unit AND e2e are green.
 #
 # Runs on every push to main (post-merge) and on every pull request. Enable branch
 # protection (Settings → Branches → require the "lint" / "unit" / "e2e" checks) to
@@ -11,6 +12,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # reused by release.yml as the pre-publish gate
 
 permissions:
   contents: read
@@ -90,12 +92,12 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  # ── End-to-end (runs only if unit passed) ──────────────────────────────────
+  # ── End-to-end (in parallel with unit; both gated on lint) ─────────────────
   # Loads the BUILT extension into real Chromium (--headless=new, no xvfb) and
   # drives it on a local fixture page.
   e2e:
     name: e2e
-    needs: unit
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -106,6 +108,15 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright). On a hit
+      # the install below skips the Chromium download and only re-runs the apt
+      # system deps. Keyed on the lockfile so a Playwright bump refetches.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright Chromium + system deps
         run: npx playwright install --with-deps chromium
@@ -160,12 +171,12 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
-  # ── Claude code-quality review (PRs only, last — runs only if e2e passed) ───
+  # ── Claude code-quality review (PRs only, last — runs only if unit + e2e passed) ─
   # Auth via a Claude subscription (Pro/Max) token in secret CLAUDE_CODE_OAUTH_TOKEN
   # (`claude setup-token`). Skipped on push events and on fork PRs (no secret).
   claude-review:
     name: claude-review
-    needs: e2e
+    needs: [unit, e2e]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
