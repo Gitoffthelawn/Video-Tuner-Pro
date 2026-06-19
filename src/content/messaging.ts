@@ -23,9 +23,28 @@ import {
   resetTargetScope,
   applyResolvedTargetFromStore,
 } from "./live/target.js";
+import {
+  persistSiteAutoSlow,
+  persistChannelAutoSlow,
+  persistGlobalAutoSlow,
+  resetAutoSlowScope,
+  setAutoSlowPreview,
+  applyResolvedAutoSlowFromStore,
+} from "./audio/autoslow-config.js";
+import { AUTO_SLOW_DEFAULTS, type AutoSlowSettings } from "./core/resolve.js";
 import { monitorData } from "./monitor.js";
 import { audioLevelHist, A_HIST_MS } from "./audio/metering.js";
+import { autoSlowHist, AUTO_SLOW_HIST_MS } from "./audio/autoslow-state.js";
 import { bufferLevelHist } from "./bitrate.js";
+
+// Build a settings bundle from a popup message, clamped to valid ranges.
+function autoSlowFromRequest(req: { enabled?: unknown; target?: unknown }): AutoSlowSettings {
+  const target = Number(req.target);
+  return {
+    on: req.enabled === true,
+    target: Number.isNaN(target) ? AUTO_SLOW_DEFAULTS.target : Math.min(12, Math.max(3, target)),
+  };
+}
 
 function replyFromVideoFrame(
   sendResponse: (response?: unknown) => void,
@@ -120,6 +139,41 @@ api.runtime.onMessage.addListener((request, sender, sendResponse) => {
       live: onStreamPage(),
     }));
   }
+  // --- Auto-slow settings bundle (enable + target), per scope — mirrors the
+  // live-sync target above.
+  if (request.action === "setAutoSlow") {
+    setAutoSlowPreview(autoSlowFromRequest(request)); // live preview, no persist
+    return replyFromVideoFrame(sendResponse, () => ({ success: true }));
+  }
+  if (request.action === "rememberAutoSlow") {
+    const s = autoSlowFromRequest(request);
+    if (request.scope === "channel") persistChannelAutoSlow(s);
+    else if (request.scope === "global") persistGlobalAutoSlow(s);
+    else persistSiteAutoSlow(s);
+    sendResponse({ success: true });
+    return true;
+  }
+  if (request.action === "resetAutoSlow") {
+    resetAutoSlowScope(
+      request.scope === "channel" || request.scope === "global" ? request.scope : "site",
+    );
+    sendResponse({ success: true });
+    return true;
+  }
+  if (request.action === "resetAutoSlowToSaved") {
+    applyResolvedAutoSlowFromStore(); // discard the live preview, re-apply the saved bundle
+    sendResponse({ success: true });
+    return true;
+  }
+  if (request.action === "getAutoSlow") {
+    return replyFromVideoFrame(sendResponse, () => ({
+      enabled: S.autoSlowEnabled,
+      target: S.autoSlowTarget,
+      scope: S.autoSlowScope,
+      channel: currentChannel(),
+      channelName: currentChannelName(),
+    }));
+  }
   if (request.action === "getMonitor") {
     return replyFromVideoFrame(sendResponse, () => monitorData());
   }
@@ -128,7 +182,16 @@ api.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return replyFromVideoFrame(sendResponse, () => ({
       audio: audioLevelHist.map((p) => [Math.round(p.in * 10) / 10, Math.round(p.out * 10) / 10]),
       audioStep: A_HIST_MS,
-      buffer: bufferLevelHist.map((p) => [nowT - p.at, Math.round(p.v * 100) / 100]),
+      buffer: bufferLevelHist.map((p) => [
+        nowT - p.at,
+        Math.round(p.v * 100) / 100,
+        p.a == null ? null : Math.round(p.a * 100) / 100,
+      ]),
+      autoSlow: autoSlowHist.map((p) => [
+        Math.round(p.rate * 10) / 10,
+        Math.round(p.speed * 100) / 100,
+      ]),
+      autoSlowStep: AUTO_SLOW_HIST_MS,
     }));
   }
   return false;

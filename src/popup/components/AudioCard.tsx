@@ -2,22 +2,20 @@
 // row is a self-contained ParamSlider (owns its thumb tween). The audio canvas
 // (#audioMeter) is driven by useGraphs at the app level; `translating` (VOT active)
 // locks the card.
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { STORE } from "../platform/storage.js";
 import { quickPresetIndices } from "../../shared/presets.js";
 import { msg } from "../i18n.js";
 import { Switch } from "../../ui/Switch.js";
 import { InfoTip } from "./InfoTip.js";
 import { ParamSlider } from "./ParamSlider.js";
-import { WarnIcon, ChevronIcon } from "../icons.js";
-import { useExpand } from "../hooks/useExpand.js";
+import { useCardOverlay } from "../hooks/useCardOverlay.js";
 import type { UseAudioCompressor } from "../hooks/useAudioCompressor.js";
 import { type CompParams, type CompPreset } from "../../shared/comp-presets.js";
 
 const presetLabel = (p: CompPreset, i: number) =>
   p.name || (p.nameKey ? msg(p.nameKey) : msg("optCompPresetName", String(i + 1)));
 const dB = (n: number) => n + " dB";
-const ms = (n: number) => Math.round(n * 1000) + " ms";
 
 interface Row {
   key: keyof CompParams;
@@ -31,6 +29,8 @@ interface Row {
   fmt: (n: number) => string;
 }
 
+// Knee / attack / release live only on the options page now — the popup keeps the
+// everyday controls (threshold, ratio, and the make-up gain slider below).
 const ROWS: Row[] = [
   {
     key: "threshold",
@@ -44,17 +44,6 @@ const ROWS: Row[] = [
     fmt: dB,
   },
   {
-    key: "knee",
-    label: "audioKnee",
-    valId: "acKneeVal",
-    sliderId: "acKnee",
-    min: 0,
-    max: 40,
-    step: 1,
-    desc: "audioKneeDesc",
-    fmt: dB,
-  },
-  {
     key: "ratio",
     label: "audioRatio",
     valId: "acRatioVal",
@@ -65,42 +54,22 @@ const ROWS: Row[] = [
     desc: "audioRatioDesc",
     fmt: (n) => n + ":1",
   },
-  {
-    key: "attack",
-    label: "audioAttack",
-    valId: "acAttackVal",
-    sliderId: "acAttack",
-    min: 0,
-    max: 1,
-    step: 0.001,
-    desc: "audioAttackDesc",
-    fmt: ms,
-  },
-  {
-    key: "release",
-    label: "audioRelease",
-    valId: "acReleaseVal",
-    sliderId: "acRelease",
-    min: 0,
-    max: 1,
-    step: 0.001,
-    desc: "audioReleaseDesc",
-    fmt: ms,
-  },
 ];
 
 interface Props {
   audio: UseAudioCompressor;
   translating: boolean;
+  // The walkthrough drives the card open/closed (undefined = the user controls it).
+  forceOpen?: boolean;
 }
 
-export function AudioCard({ audio: a, translating }: Props) {
+export function AudioCard({ audio: a, translating, forceOpen }: Props) {
+  const slotRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
-  const presetGridRef = useRef<HTMLDivElement>(null);
-  const { open, toggle, setOpen, bodyRef, onBodyTransitionEnd } = useExpand(
-    sectionRef,
-    presetGridRef,
-  );
+  const { open, toggle, setOpen } = useCardOverlay(sectionRef, slotRef, a.enabled && !translating);
+  useEffect(() => {
+    if (forceOpen !== undefined) setOpen(forceOpen);
+  }, [forceOpen, setOpen]);
 
   // Same model as the speed presets: pinned presets (filled to 4 with the lowest
   // unpinned) form the collapsed quick row; the rest are "extra", revealed when
@@ -118,118 +87,108 @@ export function AudioCard({ audio: a, translating }: Props) {
   };
 
   return (
-    <div
-      ref={sectionRef}
-      className={"sync-section audio-section" + (translating ? " audio-locked" : "")}
-    >
-      <div className="sec-head">
-        <button type="button" className="sec-main" aria-expanded={open} onClick={toggle}>
-          <span className="sec-text">
-            <span className="sec-title-row">
-              <strong>{msg("audioTitle")}</strong>
-              <InfoTip tip={msg("audioHint")} />
+    <div ref={slotRef} className="card-slot">
+      <div
+        ref={sectionRef}
+        className={
+          "sync-section audio-section overlay-card" +
+          (open ? " is-overlay" : "") +
+          (translating ? " audio-locked" : "")
+        }
+      >
+        <div className="sec-head">
+          <button type="button" className="sec-main" aria-expanded={open} onClick={toggle}>
+            <span className="sec-text">
+              <span className="sec-title-row">
+                <strong>{msg("audioTitle")}</strong>
+                <InfoTip tip={msg("audioHint")} />
+              </span>
+              <span className="switch-sub">{msg("audioSubtitle")}</span>
             </span>
-            <span className="switch-sub">{msg("audioSubtitle")}</span>
-          </span>
-        </button>
-        <span
-          className="info warn"
-          id="audioVotWarn"
-          tabIndex={0}
-          role="button"
-          aria-label="Translation active"
-          style={{ display: translating ? "inline-flex" : "none" }}
-        >
-          <WarnIcon />
-          <span className="tip">{msg("audioVotNote")}</span>
-        </span>
-        <Switch id="audioCompToggle" checked={a.enabled} onChange={onToggle} />
-      </div>
-
-      <div className="meter audio always">
-        <div className="meter-legend">
-          <span>
-            <i className="dot dot-in"></i>
-            <span>{msg("meterIn")}</span>
-          </span>
-          <span>
-            <i className="dot dot-out"></i>
-            <span>{msg("meterOut")}</span>
-          </span>
-          <span className="meter-thr">
-            <i className="dot dot-thr"></i>
-            <span>{msg("meterThr")}</span>
-          </span>
+          </button>
+          {translating && (
+            <InfoTip warn id="audioVotWarn" label="Translation active" tip={msg("audioVotNote")} />
+          )}
+          <Switch id="audioCompToggle" checked={a.enabled} onChange={onToggle} />
         </div>
-        <canvas id="audioMeter"></canvas>
-      </div>
 
-      <div className="preset-block">
-        {/* Columns track the visible (quick) count so fewer than four presets fill
+        <div className="meter audio always">
+          <div className="meter-legend">
+            <span>
+              <i className="dot dot-in"></i>
+              <span>{msg("meterIn")}</span>
+            </span>
+            <span>
+              <i className="dot dot-out"></i>
+              <span>{msg("meterOut")}</span>
+            </span>
+            <span className="meter-thr">
+              <i className="dot dot-thr"></i>
+              <span>{msg("meterThr")}</span>
+            </span>
+          </div>
+          <canvas id="audioMeter"></canvas>
+        </div>
+
+        <div className="card-scroll">
+          <div className="preset-block">
+            {/* Columns track the visible (quick) count so fewer than four presets fill
             the width with no empty trailing cell; expanded, the extras wrap into
             these same columns. */}
-        <div
-          className="preset-grid"
-          ref={presetGridRef}
-          style={{ gridTemplateColumns: `repeat(${quick.size}, 1fr)` }}
-        >
-          {a.presets.map((p, i) => (
-            <button
-              key={i}
-              type="button"
-              className={
-                "btn-preset" +
-                (quick.has(i) ? "" : " extra") +
-                (a.activePreset === i ? " active" : "")
-              }
-              data-preset={i}
-              onClick={() => a.applyPreset(i)}
+            <div
+              className="preset-grid"
+              style={{ gridTemplateColumns: `repeat(${quick.size}, 1fr)` }}
             >
-              {presetLabel(p, i)}
-            </button>
-          ))}
+              {a.presets.map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={
+                    "btn-preset" +
+                    (quick.has(i) ? "" : " extra") +
+                    (a.activePreset === i ? " active" : "")
+                  }
+                  data-preset={i}
+                  onClick={() => a.applyPreset(i)}
+                >
+                  {presetLabel(p, i)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={"sync-body" + (open ? " open" : "")} id="audioBody">
+            {ROWS.map((row) => (
+              <ParamSlider
+                key={row.key}
+                id={row.sliderId}
+                valId={row.valId}
+                label={msg(row.label)}
+                desc={msg(row.desc)}
+                min={row.min}
+                max={row.max}
+                step={row.step}
+                value={a.comp.values[row.key]}
+                animate={a.comp.animate}
+                fmt={row.fmt}
+                onChange={(v) => a.setParam(row.key, v)}
+              />
+            ))}
+            <ParamSlider
+              id="acGain"
+              valId="acGainVal"
+              label={msg("audioGain")}
+              desc={msg("audioGainDesc")}
+              min={0}
+              max={24}
+              step={1}
+              value={a.gain}
+              animate={false}
+              fmt={dB}
+              onChange={a.setGain}
+            />
+          </div>
         </div>
-      </div>
-
-      <div
-        ref={bodyRef}
-        className={"sync-body" + (open ? " open" : "")}
-        id="audioBody"
-        onTransitionEnd={onBodyTransitionEnd}
-      >
-        {ROWS.map((row) => (
-          <ParamSlider
-            key={row.key}
-            id={row.sliderId}
-            valId={row.valId}
-            label={msg(row.label)}
-            desc={msg(row.desc)}
-            min={row.min}
-            max={row.max}
-            step={row.step}
-            value={a.comp.values[row.key]}
-            animate={a.comp.animate}
-            fmt={row.fmt}
-            onChange={(v) => a.setParam(row.key, v)}
-          />
-        ))}
-        <ParamSlider
-          id="acGain"
-          valId="acGainVal"
-          label={msg("audioGain")}
-          desc={msg("audioGainDesc")}
-          min={0}
-          max={24}
-          step={1}
-          value={a.gain}
-          animate={false}
-          fmt={dB}
-          onChange={a.setGain}
-        />
-      </div>
-
-      <div className="expand-hint" aria-hidden="true" onClick={toggle}>
-        <ChevronIcon />
       </div>
     </div>
   );

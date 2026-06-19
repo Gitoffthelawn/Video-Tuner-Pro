@@ -4,6 +4,26 @@
    on/off switch, and the body that slides open.
    ============================================================ */
 
+/* "beta" tag tucked into the card's bottom-right corner (frame), so the title text
+   doesn't have to carry "(beta)" and wrap on a narrow card. A warm orange-red (not
+   the accent) so it reads as a "still rough" warning rather than a feature accent. */
+.beta-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: 3;
+  padding: 2px 6px 1px;
+  border-radius: 7px 0 10px 0;
+  background: #e0531a;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  text-transform: lowercase;
+  pointer-events: none;
+}
+
 .sync-section {
   position: relative;
   background: var(--surface);
@@ -21,6 +41,34 @@
        yields to it, like manual speed yields to Live-sync. */
   &.audio-locked {
     .meter,
+    .sync-body,
+    .switch {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(0.3);
+    }
+  }
+
+  /* On a live stream auto-slow yields to live-sync (the content sampler skips it),
+       so the card dims like the manual-speed card locks. Its target controls sit
+       outside .sync-body, so they're listed explicitly. */
+  &.autoslow-section.locked {
+    .meter,
+    .sync-delay-row,
+    .speed-slider,
+    .sync-body,
+    .switch {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(0.3);
+    }
+  }
+
+  /* The mirror case: off a live stream live-sync has nothing to do, so dim its
+       controls. The chart is left alone — it shows the "Live streams only" hint. */
+  &.live-sync-section.locked {
+    .sync-delay-row,
+    .speed-slider,
     .sync-body,
     .switch {
       opacity: 0.4;
@@ -59,27 +107,7 @@
     height: 15px;
   }
 
-  /* Reveal the section's hint on hover/focus. */
-  &:hover .tip,
-  &:focus-visible .tip {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  /* Flipped below the section when there isn't room above (JS toggles it). */
-  &.tip-below .tip {
-    bottom: auto;
-    top: calc(100% + 8px);
-    transform: translateY(-4px);
-  }
-
-  &.tip-below:hover .tip,
-  &.tip-below:focus-visible .tip {
-    transform: translateY(0);
-  }
-
-  /* Warning variant (live stream / active translation): amber, and its tooltip
-       is pinned below so it can't get clipped at the top of the popup. */
+  /* Warning variant (live stream / active translation): amber icon. */
   &.warn {
     color: #ff9f0a;
     align-self: center;
@@ -88,34 +116,16 @@
     &:focus-visible {
       color: #e8900a;
     }
-
-    .tip {
-      left: 0;
-      right: 0;
-      top: calc(100% + 8px);
-      bottom: auto;
-      width: auto;
-      background: var(--warn-bg);
-      color: var(--warn-text);
-      border: 1px solid var(--warn-line);
-      transform: translateY(-4px);
-    }
-
-    &:hover .tip,
-    &:focus-visible .tip {
-      transform: translateY(0);
-    }
   }
 }
 
-/* Base tooltip — kept top-level (specificity 0,1,0) so the .info-scoped rules
-   above can override it; nesting it under .info would raise its specificity. */
+/* Tooltip bubble. Floating UI portals it onto document.body and sets its
+   position inline, so it escapes the cards' overflow/scroll clipping; this rule
+   is only the look. Sizes to its content, capped so long hints wrap. */
 .tip {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 30;
+  z-index: 1000;
+  width: max-content;
+  max-width: 240px;
   padding: 9px 11px;
   border-radius: 9px;
   background: var(--tip-bg);
@@ -125,66 +135,12 @@
   line-height: 1.45;
   text-align: left;
   box-shadow: 0 8px 22px var(--shadow);
-  opacity: 0;
-  transform: translateY(4px);
   pointer-events: none;
-  transition:
-    opacity 0.15s,
-    transform 0.15s;
 }
-
-/* --- Expand chevron ------------------------------------------------------ */
-/* Hover affordance: a small chevron fades in at the card's bottom — points
-   down on a collapsed block (will expand), up on an open one (will collapse). */
-.expand-hint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  height: 18px;
-  padding-bottom: 3px;
-  border-radius: 0 0 10px 10px;
-  background: linear-gradient(to bottom, transparent, var(--hint-fade));
-  opacity: 0;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: opacity 0.18s;
-
-  svg {
-    width: 12px;
-    height: 12px;
-    color: var(--muted);
-    transition:
-      transform 0.18s,
-      color 0.15s;
-  }
-
-  /* Hover feedback: brighten + grow the chevron. */
-  &:hover svg {
-    color: var(--text);
-    transform: scale(1.25);
-  }
-}
-
-/* Visible when hovering the header (or the strip itself), or when open. Open
-   state also rotates the chevron 180°. These cross-element (sibling) rules read
-   clearer flat than nested under .expand-hint. */
-.sec-head:hover ~ .expand-hint,
-.expand-hint:hover,
-.sync-body.open ~ .expand-hint {
-  opacity: 1;
-}
-
-.sync-body.open ~ .expand-hint svg {
-  transform: rotate(180deg);
-}
-
-.sync-body.open ~ .expand-hint:hover svg {
-  transform: rotate(180deg) scale(1.25);
+.tip.warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-line);
 }
 
 /* --- Header row + on/off switch ------------------------------------------ */
@@ -285,15 +241,45 @@
     opacity 0.2s,
     margin-top 0.2s;
 
-  /* padding-bottom only when open — keeps the bottom chevron clear of the
-       last control; collapsed blocks stay visually untouched. */
   &.open {
     max-height: 560px;
     margin-top: 12px;
-    padding-bottom: 16px;
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+/* --- Overlay-expand (all cards) -----------------------------------------------
+   When open, the card pins to the whole grid; useCardOverlay FLIP-animates the
+   size. The body reveals instantly (no max-height tween) so only the FLIP moves. */
+.sync-section.is-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  /* A fixed frame: the header + chart stay pinned and only .card-scroll (the
+     controls below the chart) scrolls when the content is taller than the popup —
+     e.g. a long translation. The collapsed popup still opens scroll-free. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+.is-overlay > .sec-head,
+.is-overlay > .meter {
+  flex: 0 0 auto; /* frozen top — header + chart */
+}
+/* Only the controls below the chart scroll, and only when they're taller than the
+   popup (e.g. a long translation). In English everything fits, so no scrollbar. */
+.is-overlay > .card-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.overlay-card .sync-body {
+  transition: none;
+}
+.overlay-card .sync-body.open {
+  max-height: none;
 }
 
 .sync-label {

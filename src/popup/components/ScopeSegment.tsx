@@ -8,11 +8,14 @@ import { msg } from "../i18n.js";
 import type { Scope, ScopeFlags } from "../lib/scope.js";
 
 interface Props {
-  name: "scope" | "syncScope"; // id prefix → matches the original element ids
+  name: "scope" | "syncScope" | "autoScope"; // id prefix → matches the original element ids
   ariaLabel: string;
   scope: Scope;
   saved: ScopeFlags;
   hasChannel: boolean;
+  // The card's expanded state: opening into the full-popup overlay widens the
+  // segment, so the pill must re-measure (offsetLeft/width shift with it).
+  open: boolean;
   onPick: (scope: Scope) => void;
 }
 
@@ -29,11 +32,11 @@ const OPTIONS: Array<{ scope: Scope; labelKey: string; titleKey: string; extra?:
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
-export function ScopeSegment({ name, ariaLabel, scope, saved, hasChannel, onPick }: Props) {
+export function ScopeSegment({ name, ariaLabel, scope, saved, hasChannel, open, onPick }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     movePill(ref.current);
-  }, [scope, hasChannel]);
+  }, [scope, hasChannel, open]);
 
   return (
     <div
