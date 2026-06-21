@@ -39,6 +39,13 @@ function reset(tabId?: number): void {
 }
 
 api.runtime.onMessage.addListener((msg, sender) => {
+  // The gear opens the options page. The popup runs as an in-page iframe behind the
+  // on-video overlay, and openOptionsPage() from that embedded extension frame is a
+  // no-op on Firefox — so the popup asks the background (which always can) instead.
+  if (msg && msg.action === "openOptions") {
+    call(() => api.runtime.openOptionsPage());
+    return;
+  }
   if (!msg || msg.action !== "icon" || !sender.tab) return;
   const tabId = sender.tab.id;
   if (msg.clear) {

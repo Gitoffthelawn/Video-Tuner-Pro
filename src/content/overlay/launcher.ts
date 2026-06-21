@@ -11,7 +11,7 @@ import { STORE } from "../platform/storage.js";
 import { api, ctxValid } from "../platform/browser.js";
 import { i18n } from "../platform/i18n.js";
 import { primaryVideo } from "../videos.js";
-import { ensureGlassFilter } from "../../shared/glass.js";
+import { ensureGlassFilter, GLASS_REFRACTION } from "../../shared/glass.js";
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -258,7 +258,7 @@ function openPopup(): void {
       border: "1px solid rgba(255,255,255,0.14)", // hairline edge for the glass panel
       borderRadius: "16px",
       WebkitBackdropFilter: "blur(10px) saturate(180%) brightness(1.04)",
-      backdropFilter: "blur(10px) saturate(180%) brightness(1.04) url(#vtp-glass)",
+      backdropFilter: "blur(10px) saturate(180%) brightness(1.04)" + GLASS_REFRACTION,
       boxShadow: "0 24px 70px rgba(0,0,0,0.5)",
       colorScheme: "normal",
       zIndex: "2147483647",
@@ -394,7 +394,7 @@ function mount(): void {
     background: "rgb(20 20 22 / calc(0.32 * var(--glass-opacity, 1)))",
     boxShadow: "0 0 0 1px rgba(255,255,255,0.14)",
     WebkitBackdropFilter: "blur(7px) saturate(180%) brightness(1.04)",
-    backdropFilter: "blur(7px) saturate(180%) brightness(1.04) url(#vtp-glass)",
+    backdropFilter: "blur(7px) saturate(180%) brightness(1.04)" + GLASS_REFRACTION,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
