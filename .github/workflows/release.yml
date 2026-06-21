@@ -39,7 +39,7 @@ jobs:
   # the upload rejected, so fail here before building or publishing anything.
   validate:
     name: Validate manifest & locales
-    runs-on: [self-hosted, unraid]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -75,7 +75,7 @@ jobs:
   build:
     name: Build & publish ${{ matrix.target }}
     needs: [ci, validate]
-    runs-on: [self-hosted, unraid]
+    runs-on: ubuntu-latest
     # Chrome and Firefox run as independent parallel jobs. fail-fast: false so a
     # failure publishing one store never cancels the other mid-flight.
     strategy:
