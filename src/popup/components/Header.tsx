@@ -7,6 +7,17 @@ import { IconButton } from "../../ui/IconButton.js";
 
 export function Header() {
   const version = api.runtime.getManifest().version;
+  // In the toolbar popup (the top document) openOptionsPage() works directly. In the
+  // on-video overlay the popup is an embedded iframe, where that call is a no-op on
+  // Firefox — so ask the background to open it instead (see background/index.ts).
+  const openSettings = () => {
+    if (window.top === window) {
+      api.runtime.openOptionsPage();
+    } else {
+      const p = api.runtime.sendMessage({ action: "openOptions" }) as Promise<unknown> | undefined;
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  };
   return (
     <div className="header">
       <h1>
@@ -22,7 +33,7 @@ export function Header() {
           id="openOptions"
           aria-label="Settings"
           title={msg("optHeader")}
-          onClick={() => api.runtime.openOptionsPage()}
+          onClick={openSettings}
         >
           <GearIcon />
         </IconButton>

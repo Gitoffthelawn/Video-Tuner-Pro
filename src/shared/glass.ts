@@ -26,6 +26,15 @@ export function applyGlassOpacity(el: HTMLElement, v: number): void {
   el.style.setProperty("--glass-opacity", String(v));
 }
 
+// The SVG-filter refraction, as a backdrop-filter token — but ONLY where the engine
+// actually renders an `url(#…)` inside backdrop-filter. Firefox parses it as valid
+// (so CSS.supports can't tell) yet drops the WHOLE backdrop-filter at paint time,
+// which kills the blur too. Gate it off there so Gecko still gets blur+saturate
+// (just no liquid ripple); Chromium keeps the full effect.
+const SUPPORTS_REFRACTION =
+  typeof navigator === "undefined" || !/\bGecko\/|firefox/i.test(navigator.userAgent);
+export const GLASS_REFRACTION = SUPPORTS_REFRACTION ? ` url(#${GLASS_FILTER_ID})` : "";
+
 // scale = refraction strength, baseFrequency = ripple size. Tweak to taste.
 const FILTER_SVG =
   `<svg aria-hidden="true" style="position:absolute;width:0;height:0;pointer-events:none">` +
@@ -41,7 +50,7 @@ const FILTER_SVG =
 const CARD_RULE =
   `.sync-section,.card,.meter canvas{` +
   `-webkit-backdrop-filter:blur(var(--card-blur)) saturate(var(--glass-saturate))!important;` +
-  `backdrop-filter:blur(var(--card-blur)) saturate(var(--glass-saturate)) url(#${GLASS_FILTER_ID})!important;}`;
+  `backdrop-filter:blur(var(--card-blur)) saturate(var(--glass-saturate))${GLASS_REFRACTION}!important;}`;
 
 // Inject the filter once into a document or shadow root (idempotent). For a
 // Document we also inject CARD_RULE so the popup/options cards get the refraction
