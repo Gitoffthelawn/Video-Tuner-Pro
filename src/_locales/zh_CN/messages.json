@@ -185,5 +185,8 @@
   "optKeyOff": { "message": "关闭" },
   "optConfirm": { "message": "确认？" },
   "optKeyDisable": { "message": "禁用" },
-  "optCancel": { "message": "取消" }
+  "optCancel": { "message": "取消" },
+  "updateAvailable": { "message": "有新版本可用" },
+  "updateAvailableVer": { "message": "版本 $1 可用" },
+  "updateNew": { "message": "新版本" }
 }

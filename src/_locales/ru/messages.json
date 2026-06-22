@@ -185,5 +185,8 @@
   "optKeyOff": { "message": "Выкл" },
   "optConfirm": { "message": "Подтвердить?" },
   "optKeyDisable": { "message": "Отключить" },
-  "optCancel": { "message": "Отмена" }
+  "optCancel": { "message": "Отмена" },
+  "updateAvailable": { "message": "Доступна новая версия" },
+  "updateAvailableVer": { "message": "Доступна версия $1" },
+  "updateNew": { "message": "Новая версия" }
 }

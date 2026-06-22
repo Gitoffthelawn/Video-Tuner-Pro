@@ -185,5 +185,8 @@
   "optKeyOff": { "message": "Desligado" },
   "optConfirm": { "message": "Confirmar?" },
   "optKeyDisable": { "message": "Desativar" },
-  "optCancel": { "message": "Cancelar" }
+  "optCancel": { "message": "Cancelar" },
+  "updateAvailable": { "message": "Uma nova versão está disponível" },
+  "updateAvailableVer": { "message": "A versão $1 já está disponível" },
+  "updateNew": { "message": "Nova versão" }
 }
