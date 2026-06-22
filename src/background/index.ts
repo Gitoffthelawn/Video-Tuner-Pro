@@ -5,6 +5,16 @@
 //     (we swap between the white and red icon PNGs);
 //   • no video / navigation -> default icon, no badge.
 import { STORE, whenReady } from "../shared/store.js";
+import {
+  UPDATE_AVAILABLE_KEY,
+  UPDATE_LATEST_KEY,
+  UPDATE_ALARM,
+  UPDATE_PERIOD_MIN,
+  hasUpdateApi,
+  cmpVersion,
+  currentVersion,
+  fetchAmoLatest,
+} from "../shared/update.js";
 
 const api = typeof browser !== "undefined" ? browser : chrome;
 
@@ -157,4 +167,57 @@ if (api.runtime && api.runtime.onInstalled && api.storage && api.storage.sync) {
       });
     });
   });
+}
+
+// --- Update checking ---------------------------------------------------------
+// Both stores update us on their own schedule; this just lets the popup header
+// surface a "new version available" marker. The result lives in local storage
+// (it's per-browser — the latest/staged version differs across browsers, so it
+// must never sync).
+function recordUpdate(available: boolean, latest?: string): void {
+  const rec: Record<string, unknown> = { [UPDATE_AVAILABLE_KEY]: available };
+  if (latest) rec[UPDATE_LATEST_KEY] = latest;
+  call(() => api.storage.local.set(rec));
+}
+
+function runUpdateCheck(): void {
+  if (hasUpdateApi()) {
+    // Chrome: ask the browser directly. "update_available" means a newer version
+    // is staged (and will be applied automatically when the worker next idles).
+    call(() =>
+      api.runtime.requestUpdateCheck((status, details) => {
+        void api.runtime.lastError;
+        recordUpdate(status === "update_available", details?.version);
+      }),
+    );
+  } else {
+    // Firefox: no update API — compare the manifest against AMO's latest.
+    void fetchAmoLatest().then((latest) => {
+      if (latest == null) return; // network blip: leave the last result untouched
+      recordUpdate(cmpVersion(latest, currentVersion()) > 0, latest);
+    });
+  }
+}
+
+// Chrome stages an update while we're running and fires this; record it so the
+// header marker appears (with the new version when known). We don't reload —
+// Chrome applies the staged update on its next idle anyway.
+if (api.runtime && api.runtime.onUpdateAvailable) {
+  api.runtime.onUpdateAvailable.addListener((details) => {
+    recordUpdate(true, details?.version);
+  });
+}
+
+// Check on install/startup and every UPDATE_PERIOD_MIN via an alarm (the worker
+// can't keep a setInterval alive across its idle unloads).
+if (api.alarms) {
+  api.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === UPDATE_ALARM) runUpdateCheck();
+  });
+  const schedule = () => {
+    call(() => api.alarms.create(UPDATE_ALARM, { periodInMinutes: UPDATE_PERIOD_MIN }));
+    runUpdateCheck();
+  };
+  if (api.runtime.onInstalled) api.runtime.onInstalled.addListener(schedule);
+  if (api.runtime.onStartup) api.runtime.onStartup.addListener(schedule);
 }

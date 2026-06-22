@@ -302,6 +302,48 @@ html.vtp-embedded .group-label::after {
   color: var(--muted);
 }
 
+/* "New version available" marker next to the version — a breathing accent dot
+   with a "New version" label so its meaning reads without hovering. Tooltip
+   (title) names the version when known; purely informational, no action. */
+.update-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: 10px;
+  font-weight: 500;
+  /* --accent-text (not --accent): the token tuned for accent used AS small text,
+     so the 10px label clears AA 4.5:1 on the dark surface too. */
+  color: var(--accent-text);
+  cursor: help;
+}
+.update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: update-dot-breathe 1.5s ease-in-out infinite;
+}
+/* Over a real video (on-page overlay) the flat dot loses its edge; a soft halo —
+   the same one the labels get — lifts it off the moving picture. */
+html.vtp-embedded .update-dot {
+  filter: drop-shadow(0 1px 2px var(--text-halo));
+}
+@keyframes update-dot-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-dot {
+    animation: none;
+  }
+}
+
 .pro-badge {
   color: #fff;
   background: var(--accent);

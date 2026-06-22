@@ -185,5 +185,8 @@
   "optKeyOff": { "message": "Off" },
   "optConfirm": { "message": "Confirm?" },
   "optKeyDisable": { "message": "Disable shortcut" },
-  "optCancel": { "message": "Cancel" }
+  "optCancel": { "message": "Cancel" },
+  "updateAvailable": { "message": "A new version is available" },
+  "updateAvailableVer": { "message": "Version $1 is available" },
+  "updateNew": { "message": "New version" }
 }

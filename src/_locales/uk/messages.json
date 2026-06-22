@@ -185,5 +185,8 @@
   "optKeyOff": { "message": "Вимк" },
   "optConfirm": { "message": "Підтвердити?" },
   "optKeyDisable": { "message": "Вимкнути" },
-  "optCancel": { "message": "Скасувати" }
+  "optCancel": { "message": "Скасувати" },
+  "updateAvailable": { "message": "Доступна нова версія" },
+  "updateAvailableVer": { "message": "Доступна версія $1" },
+  "updateNew": { "message": "Нова версія" }
 }
