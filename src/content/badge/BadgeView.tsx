@@ -8,7 +8,7 @@
 import type { CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { ensureGlassFilter } from "../../shared/glass.js";
+import { ensureGlassFilter, GLASS_REFRACTION } from "../../shared/glass.js";
 
 const BADGE_STYLE: CSSProperties = {
   position: "fixed",
@@ -31,7 +31,7 @@ const BADGE_STYLE: CSSProperties = {
   opacity: 0,
   transition: "opacity .25s",
   WebkitBackdropFilter: "blur(7px) saturate(180%) brightness(1.04)",
-  backdropFilter: "blur(7px) saturate(180%) brightness(1.04) url(#vtp-glass)",
+  backdropFilter: "blur(7px) saturate(180%) brightness(1.04)" + GLASS_REFRACTION,
 };
 
 // Small red dot left of the speed, shown only on live streams (the value that
