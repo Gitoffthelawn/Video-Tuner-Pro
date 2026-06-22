@@ -10,8 +10,11 @@ import prettier from "eslint-config-prettier";
 export default tseslint.config(
   {
     ignores: [
-      "dist/",
-      "coverage/",
+      "dist/", // extension build output
+      "coverage/", // vitest coverage report
+      "storybook-static/", // storybook build output
+      "playwright-report/", // e2e report
+      "test-results/", // e2e run artifacts
       "node_modules/",
       "tools/",
       "e2e/",
