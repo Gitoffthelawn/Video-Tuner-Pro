@@ -7,6 +7,7 @@ import { useLiveSync } from "../hooks/useLiveSync.js";
 import { useAutoSlow } from "../hooks/useAutoSlow.js";
 import { useAudioCompressor } from "../hooks/useAudioCompressor.js";
 import { useGraphs } from "../hooks/useGraphs.js";
+import { useStored } from "../hooks/useStored.js";
 import { STORE } from "../platform/storage.js";
 import { msg } from "../i18n.js";
 import { GlassBackdrop } from "../../ui/GlassBackdrop.js";
@@ -35,11 +36,11 @@ export function App() {
   const [audioBlocked, setAudioBlocked] = useState<string | null>(null);
   useGraphs(tab?.tabId ?? null, setTranslating, setAudioBlocked);
   useEffect(() => ensureGlassFilter(document), []);
-  useEffect(() => {
-    STORE.get([GLASS_OPACITY_KEY], (r) =>
-      applyGlassOpacity(document.documentElement, clampGlassOpacity(r[GLASS_OPACITY_KEY])),
-    );
-  }, []);
+  // Subscribed so a glass-opacity change on the options page reflows the open
+  // popup (the overlay especially) live, not only on the next open.
+  useStored([GLASS_OPACITY_KEY], (r) =>
+    applyGlassOpacity(document.documentElement, clampGlassOpacity(r[GLASS_OPACITY_KEY])),
+  );
 
   // First-open walkthrough: show it once, the first time the popup opens, then
   // remember it's been seen.

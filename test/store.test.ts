@@ -43,6 +43,10 @@ function makeChrome() {
         onChanged: {
           addListener: (l: (c: Record<string, { newValue?: unknown }>, a: string) => void) =>
             listeners.push(l),
+          removeListener: (l: (c: Record<string, { newValue?: unknown }>, a: string) => void) => {
+            const i = listeners.indexOf(l);
+            if (i >= 0) listeners.splice(i, 1);
+          },
         },
       },
     } as unknown as typeof chrome,
@@ -86,6 +90,18 @@ describe("routed STORE", () => {
       fired = true;
     });
     expect(fired).toBe(true); // mock get is synchronous → ready by now
+  });
+
+  it("subscribe fires on a watched key and stops after unsubscribe", async () => {
+    const { STORE, subscribe } = await freshStore(env.chrome);
+    let hits = 0;
+    const off = subscribe(["globalSpeed"], () => hits++);
+    STORE.set({ globalSpeed: 2 }); // watched key → fires
+    STORE.set({ audioComp: true }); // unwatched key → ignored
+    expect(hits).toBe(1);
+    off();
+    STORE.set({ globalSpeed: 3 }); // unsubscribed → no more hits
+    expect(hits).toBe(1);
   });
 
   it("get(null) merges both areas (the export path)", async () => {
