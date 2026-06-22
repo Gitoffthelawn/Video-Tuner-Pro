@@ -1,16 +1,16 @@
-// Auto-slow card (audio group). Mirrors the live-sync card: an enable toggle, the
-// live speech graph, and an always-visible target-rate row (steppers + slider).
-// The target previews live; Save commits the {enable, target} bundle to the chosen
-// scope (channel > site > global), Reset clears it. The expanded body also holds the
-// global response knobs (Slowest speed + Soft knee + Reaction; Hold / Ease-back stay
-// options-only).
+// Auto-slow card (audio group). Standard card shape like the others: a global
+// on/off switch in the header (StoredToggle on `autoSlowEnabled`), the live speech
+// graph, an always-visible target-rate row, and an expanded body with Save (the
+// target is still saved per scope: channel > site > global) plus the global response
+// knobs (Slowest speed + Soft knee; Reaction / Hold / Ease-back stay options-only).
+// A "β" beta marker sits by the title.
 import { useEffect, useRef } from "react";
 import { msg } from "../i18n.js";
-import { Switch } from "../../ui/Switch.js";
 import { SliderRow } from "./SliderRow.js";
 import { ParamSlider } from "./ParamSlider.js";
 import { InfoTip } from "./InfoTip.js";
 import { SaveScope } from "./SaveScope.js";
+import { StoredToggle } from "./StoredToggle.js";
 import { Button } from "../../ui/Button.js";
 import { useCardOverlay } from "../hooks/useCardOverlay.js";
 import { useAutoSlowKnobs } from "../hooks/useAutoSlowKnobs.js";
@@ -66,7 +66,7 @@ export function AutoSlowCard({ autoSlow: a, live, blocked, forceOpen }: Props) {
           {live && (
             <InfoTip warn id="autoSlowLiveWarn" label="Live stream" tip={msg("autoSlowLiveNote")} />
           )}
-          <Switch id="autoSlowToggle" beta checked={a.enabled} onChange={a.setEnabled} />
+          <StoredToggle id="autoSlowToggle" storageKey="autoSlowEnabled" defaultOn={false} />
         </div>
 
         <div className="meter autoslow always">
@@ -138,7 +138,7 @@ export function AutoSlowCard({ autoSlow: a, live, blocked, forceOpen }: Props) {
                 resetId="autoSlowResetBtn"
               />
             </div>
-            {/* Global response knobs (apply everywhere) — the target above is per-site. */}
+            {/* Global response knobs (apply everywhere) — the target above is per-scope. */}
             <div className="list-group">
               <ParamSlider
                 id="asFloor"
@@ -146,7 +146,7 @@ export function AutoSlowCard({ autoSlow: a, live, blocked, forceOpen }: Props) {
                 label={msg("optAutoSlowFloor") || "Slowest speed"}
                 desc={msg("optAutoSlowFloorHint") || ""}
                 min={50}
-                max={100}
+                max={200}
                 step={5}
                 value={k.floor}
                 animate={false}
@@ -166,19 +166,6 @@ export function AutoSlowCard({ autoSlow: a, live, blocked, forceOpen }: Props) {
                 animate={false}
                 fmt={(v) => "±" + v.toFixed(1) + " /s"}
                 onChange={k.setKnee}
-              />
-              <ParamSlider
-                id="asReaction"
-                valId="asReactionVal"
-                label={msg("optAutoSlowReaction") || "Reaction"}
-                desc={msg("optAutoSlowReactionHint") || ""}
-                min={0}
-                max={100}
-                step={5}
-                value={k.reaction}
-                animate={false}
-                fmt={(v) => Math.round(v) + "%"}
-                onChange={k.setReaction}
               />
             </div>
           </div>

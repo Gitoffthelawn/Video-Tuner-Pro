@@ -2,9 +2,10 @@
 import { describe, it, expect } from "vitest";
 import { mountApp, byId, flush, wait, sliderValue, setSlider } from "./mocks/mount-popup.js";
 
-// The auto-slow card via the real <App/>: enable + target rate are saved per scope
-// (channel > site > global) via messaging — the toggle/slider preview live
-// (setAutoSlow), Save commits (rememberAutoSlow), Reset clears (resetAutoSlow).
+// The auto-slow card via the real <App/>: the master enable is a GLOBAL flag
+// (autoSlowEnabled, a StoredToggle in the header). The target rate is saved per scope
+// (channel > site > global) via messaging — the slider previews live (setAutoSlow),
+// Save commits the target (rememberAutoSlow), Reset clears it (resetAutoSlow).
 const EX = { id: 4, url: "https://example.com/" };
 const click = (id: string) => byId(id).click();
 // The toggle is a Radix Switch (role="switch" button), not a checkbox.
@@ -22,12 +23,18 @@ const openMenu = async () => {
 const primary = () => document.querySelector<HTMLElement>(".scope-menu .scope-primary")!;
 
 describe("auto-slow card", () => {
-  it("reflects the resolved enable + target + scope from getAutoSlow", async () => {
-    await mountApp({ tab: EX, replies: reply({ target: 8 }) });
-    expect(isOn("autoSlowToggle")).toBe(true);
-    expect(sliderValue("autoSlowTarget")).toBe(8);
+  it("reflects the global enable flag + per-scope target + scope", async () => {
+    await mountApp({ tab: EX, replies: reply({ target: 8 }), settings: { autoSlowEnabled: true } });
+    expect(isOn("autoSlowToggle")).toBe(true); // from the global autoSlowEnabled flag
+    expect(sliderValue("autoSlowTarget")).toBe(8); // from the resolved per-scope target
     await openMenu();
     expect(primary().textContent).toContain("for this site");
+  });
+
+  it("carries a beta marker in the header", async () => {
+    await mountApp({ tab: EX, replies: reply() });
+    expect(document.querySelector(".beta-glyph")?.textContent).toBe("β");
+    expect(byId("autoSlowToggle")).not.toBeNull();
   });
 
   it("defaults the save target to Channel when the bundle came from a channel", async () => {
@@ -36,18 +43,12 @@ describe("auto-slow card", () => {
     expect(primary().textContent).toContain("for this channel");
   });
 
-  it("the toggle previews live via setAutoSlow", async () => {
-    const { lastCall } = await mountApp({
-      tab: EX,
-      replies: reply({ enabled: false, scope: null }),
-    });
+  it("the header toggle flips the global autoSlowEnabled flag", async () => {
+    await mountApp({ tab: EX, replies: reply(), settings: { autoSlowEnabled: false } });
+    expect(isOn("autoSlowToggle")).toBe(false);
     click("autoSlowToggle");
     await flush();
-    expect(lastCall("setAutoSlow")).toMatchObject({
-      action: "setAutoSlow",
-      enabled: true,
-      target: 6,
-    });
+    expect(isOn("autoSlowToggle")).toBe(true);
   });
 
   it("the target slider previews live (debounced setAutoSlow)", async () => {
@@ -65,7 +66,6 @@ describe("auto-slow card", () => {
     expect(lastCall("rememberAutoSlow")).toMatchObject({
       action: "rememberAutoSlow",
       scope: "site",
-      enabled: true,
       target: 7,
     });
   });
@@ -105,40 +105,42 @@ describe("auto-slow card", () => {
   });
 });
 
-// The global response knobs (Slowest speed + Soft knee + Reaction) write their own
-// storage keys live — not per-site — via useAutoSlowKnobs.
+// The global response knobs surfaced on the card (Slowest speed + Soft knee) write
+// their own storage keys live — not per-site — via useAutoSlowKnobs. Reaction / Hold
+// / Ease-back live in the options page only.
 describe("auto-slow response knobs (global)", () => {
   // aria-valuenow is rounded to an integer, so the fractional knee is read off its
   // aria-valuetext readout instead (e.g. "±0.5 /s").
   const sliderText = (id: string) =>
     byId(id).querySelector('[role="slider"]')!.getAttribute("aria-valuetext");
 
-  it("loads the stored floor (as a fraction) + knee + reaction into the sliders", async () => {
+  it("loads the stored floor (as a fraction) + knee into the sliders", async () => {
     await mountApp({
       tab: EX,
       replies: reply(),
-      settings: { autoSlowFloor: 0.7, autoSlowKnee: 1.5, autoSlowReaction: 30 },
+      settings: { autoSlowFloor: 0.7, autoSlowKnee: 1.5 },
     });
     expect(sliderValue("asFloor")).toBe(70); // 0.7 → 70%
     expect(sliderText("asKnee")).toBe("±1.5 /s");
-    expect(sliderValue("asReaction")).toBe(30);
   });
 
   it("defaults the knobs when nothing is stored", async () => {
     await mountApp({ tab: EX, replies: reply() });
     expect(sliderValue("asFloor")).toBe(100);
     expect(sliderText("asKnee")).toBe("±0.5 /s");
-    expect(sliderValue("asReaction")).toBe(50);
   });
 
-  it("applies edits from the sliders (setFloor / setKnee / setReaction run their write path)", async () => {
+  it("does not surface the Reaction knob on the card (options-only)", async () => {
+    await mountApp({ tab: EX, replies: reply() });
+    expect(document.getElementById("asReaction")).toBeNull();
+  });
+
+  it("applies edits from the sliders (setFloor / setKnee run their write path)", async () => {
     await mountApp({ tab: EX, replies: reply() });
     setSlider("asFloor", 85);
     setSlider("asKnee", 2); // → max, ±2.0 /s
-    setSlider("asReaction", 60);
     await flush();
     expect(sliderValue("asFloor")).toBe(85);
     expect(sliderText("asKnee")).toBe("±2.0 /s");
-    expect(sliderValue("asReaction")).toBe(60);
   });
 });
