@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "调校任何视频：播放速度、智能直播同步，以及平衡大声与轻声的音频压缩。" },
+  "extDescription": { "message": "调校任何视频：播放速度、直播同步与回退，以及平衡大小声的音频压缩。" },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "加载中…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "速度" },
   "meterTarget": { "message": "目标" },
   "optAutoSlowFloorHint": { "message": "可减速到的最低速度（相对你所设速度的比例）。" },
+  "optAutoSlowKnee": { "message": "软拐点" },
+  "optAutoSlowKneeHint": { "message": "在目标语速附近的区间内逐渐引入减速，而不是在阈值处突然触发。越宽越柔和、触发越早。" },
   "betaNote": { "message": "Beta 功能 — 仍在打磨，可能会变化。" },
   "optKeyOff": { "message": "关闭" },
   "optConfirm": { "message": "确认？" },

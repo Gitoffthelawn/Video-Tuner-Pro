@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Ajuste qualquer vídeo: velocidade, live-sync inteligente e compressão de áudio para equilibrar o volume." },
+  "extDescription": { "message": "Ajuste qualquer vídeo: velocidade, sincronização e rebobinagem de lives e compressão de áudio para nivelar o volume." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Carregando…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "Velocidade" },
   "meterTarget": { "message": "Alvo" },
   "optAutoSlowFloorHint": { "message": "A velocidade mínima até onde pode reduzir (proporção da sua velocidade)." },
+  "optAutoSlowKnee": { "message": "Joelho suave" },
+  "optAutoSlowKneeHint": { "message": "Aplica a redução gradualmente em uma faixa ao redor do ritmo alvo, em vez de ligar de forma brusca no limite. Mais largo = mais suave e mais cedo." },
   "betaNote": { "message": "Recurso beta — ainda em ajustes e pode mudar." },
   "optKeyOff": { "message": "Desligado" },
   "optConfirm": { "message": "Confirmar?" },

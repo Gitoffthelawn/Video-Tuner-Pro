@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Jedes Video optimieren: Wiedergabetempo, smarte Live-Synchronisation und Audiokompression für gleichmäßige Lautstärke." },
+  "extDescription": { "message": "Jedes Video optimieren: Tempo, Live-Synchronisation und -Rückspulen plus Audiokompression für gleichmäßige Lautstärke." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Wird geladen…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "Tempo" },
   "meterTarget": { "message": "Ziel" },
   "optAutoSlowFloorHint": { "message": "Die niedrigste Geschwindigkeit, auf die es heruntergehen darf (Anteil deiner Geschwindigkeit)." },
+  "optAutoSlowKnee": { "message": "Weiche Kennlinie" },
+  "optAutoSlowKneeHint": { "message": "Lässt die Verlangsamung in einem Band um das Zieltempo allmählich einsetzen statt hart an der Schwelle. Breiter = sanfter und früher." },
   "betaNote": { "message": "Beta-Funktion — noch nicht ausgereift, kann sich ändern." },
   "optKeyOff": { "message": "Aus" },
   "optConfirm": { "message": "Bestätigen?" },

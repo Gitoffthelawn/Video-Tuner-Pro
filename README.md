@@ -14,10 +14,14 @@ accounts and no tracking.
 
 ## What it does
 
-- **Playback speed** — one-click presets or a fine slider, on almost any video.
+- **Playback speed** — editable presets or a fine slider, on almost any video. Set your own preset values and raise the maximum speed as high as you need.
 - **Remember speed per channel, site, or globally** — save a speed for a YouTube channel, the current site, or as a global default; it's applied automatically next time, by priority (channel → site → global). Anything not saved stays at normal speed.
+- **Keyboard shortcuts** — slower, faster, and reset keys, a hold-to-speed key, and a key per preset — all remappable to chords of your choice.
 - **Live-sync** — automatically catches live streams back up to the live edge, then returns to normal.
-- **Audio compression** — evens out loud and quiet parts so you don't keep reaching for the volume.
+- **Rewind live streams** — scrub back and watch the recording at any speed; return to the live edge and it's a live stream again.
+- **True latency** — see the real delay to the broadcaster on YouTube and Twitch, not just the buffer.
+- **Audio compression** — evens out loud and quiet parts so you don't keep reaching for the volume. Voice, Night, and Movie presets, or fine-tune every knob.
+- **Super theater (YouTube)** — one toggle makes theater mode fill the whole window; the header hides itself.
 - **On-video readout** — optional badge showing the current speed and how much time is really left at that speed.
 - **Live graphs** — see the audio levels and the live-stream buffer in real time.
 - **Light & dark themes**, 10 languages, and **no tracking** — nothing leaves your device.

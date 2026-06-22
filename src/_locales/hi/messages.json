@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "किसी भी वीडियो को ट्यून करें: प्लेबैक गति, स्मार्ट लाइव-स्ट्रीम सिंक और तेज़-धीमी आवाज़ें बराबर करने वाला ऑडियो कंप्रेशन।" },
+  "extDescription": { "message": "किसी भी वीडियो को ट्यून करें: गति, लाइव-स्ट्रीम सिंक और रिवाइंड, और आवाज़ बराबर करने वाला ऑडियो कंप्रेशन।" },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "लोड हो रहा है…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "गति" },
   "meterTarget": { "message": "लक्ष्य" },
   "optAutoSlowFloorHint": { "message": "वह न्यूनतम गति जिस तक यह धीमा कर सकता है (आपकी गति का अंश)।" },
+  "optAutoSlowKnee": { "message": "सॉफ्ट नी" },
+  "optAutoSlowKneeHint": { "message": "धीमेपन को सीमा पर अचानक चालू करने के बजाय लक्ष्य गति के आसपास एक दायरे में धीरे-धीरे लाता है। चौड़ा = अधिक कोमल और पहले।" },
   "betaNote": { "message": "बीटा फ़ीचर — अभी कच्चा है और बदल सकता है।" },
   "optKeyOff": { "message": "बंद" },
   "optConfirm": { "message": "पुष्टि करें?" },
