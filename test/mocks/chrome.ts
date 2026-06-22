@@ -50,7 +50,7 @@ export function createMockChrome(data: MockData = {}): typeof chrome {
       for (const k of Array.isArray(keys) ? keys : [keys]) delete store[k];
       cb?.();
     },
-    onChanged: { addListener() {} },
+    onChanged: { addListener() {}, removeListener() {} },
   });
 
   const chromeMock = {
@@ -59,7 +59,7 @@ export function createMockChrome(data: MockData = {}): typeof chrome {
         substitute(data.messages?.[key]?.message ?? "", subs),
       getUILanguage: () => "en",
     },
-    storage: { sync: area(), local: area(), onChanged: { addListener() {} } },
+    storage: { sync: area(), local: area(), onChanged: { addListener() {}, removeListener() {} } },
     runtime: {
       id: "mock",
       lastError: null as unknown,

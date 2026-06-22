@@ -16,6 +16,7 @@ import {
 import type { ActiveTab, SendToTab } from "./tab.js";
 import type { Scope, ScopeFlags, ScopeStorage } from "../lib/scope.js";
 import { useScopeSelection, type ScopeValues } from "./useScopeSelection.js";
+import { useStored } from "./useStored.js";
 import { pullAfter, type SpeedResponse } from "../lib/messaging.js";
 
 const STORAGE: ScopeStorage = {
@@ -223,17 +224,21 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
     [sendSpeed],
   );
 
-  // Initial load: editable presets, then the page's resolved speed (or storage).
+  // Editable presets + slider bounds come from storage; stay subscribed so edits
+  // on the options page (the presets editor / max speed) show in an open popup
+  // without a reopen. Not tab-gated — they don't depend on the page.
+  useStored(["speedPresets", "presetKeys", "presetPins", "speedMax", "speedStep"], (r) => {
+    const set = normalizePresetSet(r.speedPresets, r.presetKeys, r.presetPins);
+    setPresets(set.presets);
+    setPresetKeys(set.keys);
+    setPinned(set.pinned);
+    setSpeedMax(normalizeSpeedMax(r.speedMax));
+    setSpeedStep(normalizeSpeedStep(r.speedStep) / 100);
+  });
+
+  // Initial load: the page's resolved speed (or storage fallback).
   useEffect(() => {
     if (!tab) return;
-    STORE.get(["speedPresets", "presetKeys", "presetPins", "speedMax", "speedStep"], (r) => {
-      const set = normalizePresetSet(r.speedPresets, r.presetKeys, r.presetPins);
-      setPresets(set.presets);
-      setPresetKeys(set.keys);
-      setPinned(set.pinned);
-      setSpeedMax(normalizeSpeedMax(r.speedMax));
-      setSpeedStep(normalizeSpeedStep(r.speedStep) / 100);
-    });
     let resolved = false;
     if (hasTab) {
       void send<SpeedResponse>("getSpeed").then((resp) => {

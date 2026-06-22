@@ -13,7 +13,7 @@ import { PresetGrid } from "./PresetGrid.js";
 import { WarnIcon } from "../icons.js";
 import { Button } from "../../ui/Button.js";
 import { useCardOverlay } from "../hooks/useCardOverlay.js";
-import { STORE } from "../platform/storage.js";
+import { useStored } from "../hooks/useStored.js";
 import { codeLabel, normalizeKeymap, DEFAULT_KEYMAP } from "../../shared/keymap.js";
 import type { UseSpeed } from "../hooks/useSpeed.js";
 
@@ -38,11 +38,10 @@ export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
     if (forceOpen !== undefined) setOpen(forceOpen);
   }, [forceOpen, setOpen]);
 
-  // The shortcut hints read the live keymap so they reflect any remaps.
+  // The shortcut hints read the live keymap so they reflect any remaps — kept
+  // subscribed so a remap on the options page shows here without a reopen.
   const [keymap, setKeymap] = useState(DEFAULT_KEYMAP);
-  useEffect(() => {
-    STORE.get(["keymap"], (r) => setKeymap(normalizeKeymap(r.keymap)));
-  }, []);
+  useStored(["keymap"], (r) => setKeymap(normalizeKeymap(r.keymap)));
 
   // Glide the readout to the new speed (or snap it). No JSX text child on the
   // readout — this owns it. The thumb glide lives in the Slider wrapper.

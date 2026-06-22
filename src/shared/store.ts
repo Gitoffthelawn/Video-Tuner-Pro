@@ -81,6 +81,24 @@ export function getSyncMaster(): boolean {
   return master;
 }
 
+// Call `cb` whenever any of `keys` changes in storage (in either area — a key's
+// area depends on the sync config). Lets an open popup re-read a setting when
+// another context (the options page) edits it; the on-video overlay especially
+// needs this, since it stays open across tab switches. Returns an unsubscribe.
+export function subscribe(keys: string[], cb: DoneCb): () => void {
+  const watch = new Set(keys);
+  const listener = (changes: Record<string, unknown>) => {
+    for (const k in changes) {
+      if (watch.has(k)) {
+        cb();
+        return;
+      }
+    }
+  };
+  api.storage.onChanged.addListener(listener);
+  return () => api.storage.onChanged.removeListener(listener);
+}
+
 // --- Multi-area fan-out, collapsed to a single callback ----------------------
 function fanGet(plan: Array<["sync" | "local", string[] | null]>, cb: GetCb): void {
   const out: Items = {};
