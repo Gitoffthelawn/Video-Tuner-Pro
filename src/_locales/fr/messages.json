@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Réglez chaque vidéo : vitesse de lecture, live-sync intelligent et compression audio pour égaliser le volume." },
+  "extDescription": { "message": "Réglez chaque vidéo : vitesse, synchro et rembobinage des directs, plus compression audio pour égaliser le volume." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Chargement…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "Vitesse" },
   "meterTarget": { "message": "Cible" },
   "optAutoSlowFloorHint": { "message": "La vitesse minimale à laquelle il peut descendre (part de votre vitesse)." },
+  "optAutoSlowKnee": { "message": "Coude doux" },
+  "optAutoSlowKneeHint": { "message": "Fait entrer le ralentissement progressivement dans une plage autour du débit cible, au lieu de basculer net au seuil. Plus large = plus doux et plus tôt." },
   "betaNote": { "message": "Fonction bêta — encore approximative, peut évoluer." },
   "optKeyOff": { "message": "Désactivé" },
   "optConfirm": { "message": "Confirmer ?" },

@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "どんな動画も思いどおりに：再生速度、スマートなライブ配信同期、大小の音を均一化する音声コンプレッション。" },
+  "extDescription": { "message": "どんな動画も思いどおりに：再生速度、ライブ配信の同期と巻き戻し、音量を均一化する音声コンプレッション。" },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "読み込み中…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "速度" },
   "meterTarget": { "message": "目標" },
   "optAutoSlowFloorHint": { "message": "下げてよい最も遅い速度（設定速度に対する割合）。" },
+  "optAutoSlowKnee": { "message": "ソフトニー" },
+  "optAutoSlowKneeHint": { "message": "しきい値で急に切り替えるのではなく、目標話速の前後の幅で減速を徐々に効かせます。広いほど緩やかで、早めに作動します。" },
   "betaNote": { "message": "ベータ機能 — まだ粗削りで、変更される場合があります。" },
   "optKeyOff": { "message": "オフ" },
   "optConfirm": { "message": "確認？" },

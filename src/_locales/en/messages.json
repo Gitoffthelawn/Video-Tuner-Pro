@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Tune any video: playback speed, smart live-stream sync and audio compression that evens out loud and quiet sounds." },
+  "extDescription": { "message": "Tune any video: playback speed, live-stream sync and rewind, plus audio compression that evens out loud and quiet sounds." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Loading…" },
@@ -108,6 +108,8 @@
   "autoSlowTargetLabel": { "message": "Target rate" },
   "optAutoSlowFloor": { "message": "Slowest speed" },
   "optAutoSlowFloorHint": { "message": "The lowest speed it may ease down to, as a share of your set speed." },
+  "optAutoSlowKnee": { "message": "Soft knee" },
+  "optAutoSlowKneeHint": { "message": "Eases the slowdown in across a band around the target rate instead of switching on sharply at the threshold. Wider = gentler, with an earlier onset." },
   "optAutoSlowHold": { "message": "Hold" },
   "optAutoSlowHoldHint": { "message": "How long it stays slowed after the fast passage ends, before speeding back up." },
   "optAutoSlowReaction": { "message": "Reaction" },

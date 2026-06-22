@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Video Tuner Pro" },
-  "extDescription": { "message": "Тонке налаштування відео: швидкість, розумна синхронізація трансляцій і компресія звуку для рівномірної гучності." },
+  "extDescription": { "message": "Тонке налаштування відео: швидкість, синхронізація й перемотка трансляцій, компресія звуку для рівної гучності." },
   "pageTitle": { "message": "Video Tuner" },
   "appHeader": { "message": "Video Tuner" },
   "loading": { "message": "Завантаження…" },
@@ -181,6 +181,8 @@
   "meterSpeed": { "message": "Швидкість" },
   "meterTarget": { "message": "Поріг" },
   "optAutoSlowFloorHint": { "message": "Найнижча швидкість, до якої може опускати (частка від заданої)." },
+  "optAutoSlowKnee": { "message": "М'яке коліно" },
+  "optAutoSlowKneeHint": { "message": "Вмикає сповільнення плавно — у смузі навколо цільового темпу, а не різко на порозі. Ширше — м'якше та раніше." },
   "betaNote": { "message": "Бета-функція — ще сира й може змінюватися." },
   "optKeyOff": { "message": "Вимк" },
   "optConfirm": { "message": "Підтвердити?" },
