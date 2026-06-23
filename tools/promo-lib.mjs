@@ -92,12 +92,13 @@ export function screenHTML({ kind, popImg, popImgDark, copy, W = 1280, H = 800 }
         colW: 370,
         h1: kind === "overview" ? 50 : 44,
         lead: kind === "overview" ? 21 : 20,
-        popW: 432,
-        popR: 18,
-        dT: 78,
-        dR: 40,
-        lT: 218,
-        lR: 318,
+        lW: 620, // front (light) larger to hold focus — Apple device-duo style
+        dW: 540, // back (dark) smaller, peeking top-right behind the front popup
+        popR: 22,
+        dT: 46,
+        dR: 24,
+        lT: 172,
+        lR: 156,
         anchor: 198,
       };
   // The headline is anchored to a fixed top (≈ the front popup's top edge) rather
@@ -109,8 +110,8 @@ export function screenHTML({ kind, popImg, popImgDark, copy, W = 1280, H = 800 }
     `<p class="lead" style="font-size:${g.lead}px;margin-top:${Math.round(g.lead * 0.95)}px">${esc(sub)}</p></div>`;
   const stage = popImgDark
     ? `<div class="stage">` +
-      `<div class="pop d" style="top:${g.dT}px;right:${g.dR}px;width:${g.popW}px;border-radius:${g.popR}px"><img src="${popImgDark}"></div>` +
-      `<div class="pop l" style="top:${g.lT}px;right:${g.lR}px;width:${g.popW}px;border-radius:${g.popR}px"><img src="${popImg}"></div></div>`
+      `<div class="pop d" style="top:${g.dT}px;right:${g.dR}px;width:${g.dW ?? g.popW}px;border-radius:${g.popR}px"><img src="${popImgDark}"></div>` +
+      `<div class="pop l" style="top:${g.lT}px;right:${g.lR}px;width:${g.lW ?? g.popW}px;border-radius:${g.popR}px"><img src="${popImg}"></div></div>`
     : `<div class="stage"><div class="pop l" style="top:${g.lT}px;right:${g.dR}px;width:${g.popW}px;border-radius:${g.popR}px"><img src="${popImg}"></div></div>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css(W, H)}</style></head><body>${col}${stage}</body></html>`;
 }
@@ -123,10 +124,42 @@ export function tileHTML({ copy, popImg }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css(440, 280)}</style></head><body>${col}${stage}</body></html>`;
 }
 
-// Take a screenshot of an HTML string at w×h (no alpha — Chrome outputs rgb24).
+// Take a screenshot of an HTML string at w×h. Supersampled: the composite is
+// rendered at 2× device pixels (so the embedded popup bitmap — a high-res capture
+// shrunk into a small box — is sampled with headroom instead of mushed in one 1×
+// pass), then downscaled to the exact target size via a canvas with high-quality
+// smoothing. Output stays at the store-mandated w×h. (Chrome outputs rgb24.)
 export async function shoot(html, w, h, out) {
   const htmlPath = `${out}.tmp.html`;
+  const bigPath = `${out}.2x.png`;
   await writeFile(htmlPath, html);
+  await runChrome([
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--hide-scrollbars",
+    "--force-device-scale-factor=2",
+    `--window-size=${w},${h}`,
+    "--virtual-time-budget=2000",
+    `--screenshot=${bigPath}`,
+    `file://${htmlPath}`,
+  ]);
+  await downscale(bigPath, w, h, out);
+  await rm(htmlPath, { force: true });
+  await rm(bigPath, { force: true });
+}
+
+// Downscale a 2w×2h PNG to exactly w×h. A canvas sized w×h is drawn at DSF 1, so
+// the screenshot captures its pixels 1:1 — the quality comes from the canvas's
+// high-quality image smoothing doing the 2×→1× resample.
+async function downscale(src, w, h, out) {
+  const dsPath = `${out}.ds.html`;
+  const html = `<!DOCTYPE html><html><head><style>*{margin:0;padding:0}canvas{display:block}</style></head><body><canvas id="c" width="${w}" height="${h}"></canvas><script>
+const img=new Image();
+img.onload=()=>{const x=document.getElementById("c").getContext("2d");x.imageSmoothingEnabled=true;x.imageSmoothingQuality="high";x.drawImage(img,0,0,${w},${h});};
+img.src="file://${src}";
+</script></body></html>`;
+  await writeFile(dsPath, html);
   await runChrome([
     "--headless=new",
     "--disable-gpu",
@@ -134,9 +167,9 @@ export async function shoot(html, w, h, out) {
     "--hide-scrollbars",
     "--force-device-scale-factor=1",
     `--window-size=${w},${h}`,
-    "--virtual-time-budget=2000",
+    "--virtual-time-budget=3000",
     `--screenshot=${out}`,
-    `file://${htmlPath}`,
+    `file://${dsPath}`,
   ]);
-  await rm(htmlPath, { force: true });
+  await rm(dsPath, { force: true });
 }
