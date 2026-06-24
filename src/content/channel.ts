@@ -3,12 +3,15 @@
 // channel has rendered.
 //
 // YouTube is special: the channel lives in the player's owner link, not the URL.
+// A watch page is /watch (the usual form) or /live/<id> (the live-stream short
+// link YouTube redirects to) — both render the same player + owner link.
 // Every other supported site puts the channel login in the FIRST path segment
 // (Twitch /<login>, Kick /<login>, TikTok /@<login>, …) — at any depth, so record
 // /VOD pages like /<login>/videos/<id> or /<login>/playlist/<id>/video/<id> still
 // resolve to <login>. The one exception is a Twitch VOD (/videos/<id>), which has
 // no channel in the URL — read from the DOM.
 const YT_HOST = /(^|\.)(youtube\.com|youtube-nocookie\.com)$/i;
+const YT_WATCH = /^\/watch$|^\/live\/[^/]/;
 
 // YouTube: the owner link under the player carries the canonical channel URL
 // (/@handle or /channel/UC…); either form is a stable identifier.
@@ -228,7 +231,7 @@ function siteLogin(site: Site): string | null {
 export function channelKeys(): string[] {
   const h = window.location.hostname;
   if (YT_HOST.test(h)) {
-    if (window.location.pathname !== "/watch") return [];
+    if (!YT_WATCH.test(window.location.pathname)) return [];
     let id: string | null = null,
       handle: string | null = null;
     for (const a of document.querySelectorAll<HTMLAnchorElement>(OWNER_SEL)) {
