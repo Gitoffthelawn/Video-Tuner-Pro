@@ -18,6 +18,12 @@ describe("currentChannel (stable per-channel key)", () => {
     expect(currentChannel()).toBe("@WGC098");
   });
 
+  it("reads the owner link on a /live/<id> page (live-stream short link)", () => {
+    at("www.youtube.com", "/live/KYnjhnYNdsk");
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@WGC098">WGC</a></ytd-video-owner-renderer>`;
+    expect(currentChannel()).toBe("@WGC098");
+  });
+
   it("reads a non-ASCII @handle that YouTube percent-encodes in the href", () => {
     at("www.youtube.com", "/watch");
     // /@Ігрович (Cyrillic) → the href is percent-encoded; the key is the decoded handle.
