@@ -47,6 +47,24 @@ export function decideCatchupSpeed(o: CatchupInput): number {
   return 1 + Math.max(0, Math.min(CATCHUP_MAX - 1, byLag, byBuffer));
 }
 
+// Gate a fresh step decision behind a minimum dwell on the currently applied one.
+// Every playbackRate write restarts the audio time-stretcher with an audible
+// click, and the buffer sawtooths across the 5%-step boundaries (segments append
+// in ~2s bursts while playback drains continuously), so applying every decision
+// as it flips clicks on each control tick. Holding each step for the dwell caps
+// that at one write per dwell window. Bailing to 1× stays immediate — that's the
+// anti-stall / dropped-frames path, and reaching the target should end catch-up
+// without lingering at a stale step.
+export function settleCatchupRate(
+  desired: number,
+  applied: number,
+  sinceChangeMs: number,
+  dwellMs: number,
+): number {
+  if (desired <= 1) return desired;
+  return sinceChangeMs < dwellMs ? applied : desired;
+}
+
 // True when we're clearly behind the live edge but the buffer is too thin to
 // catch up at all (not even the smallest 5% step) — latency will stay high
 // until the buffer refills, which the UI warns about.

@@ -3,6 +3,7 @@ import {
   decideCatchupSpeed,
   catchupBufferLimited,
   catchupBufferFloor,
+  settleCatchupRate,
 } from "../src/content/live/catchup.js";
 
 // constants: MIN_FORWARD_BUFFER=1.0, CATCHUP_MAX=1.25, CATCHUP_STEP_LAG=7,
@@ -77,6 +78,29 @@ describe("catchupBufferLimited (the UI warning)", () => {
   it("a larger reserve warns sooner (the cushion is wider)", () => {
     expect(catchupBufferLimited(30, 4, 5, 3)).toBe(false); // 4s clears the 3s reserve
     expect(catchupBufferLimited(30, 4, 5, 5)).toBe(true); // but not the 5s reserve
+  });
+});
+
+describe("settleCatchupRate — minimum step dwell", () => {
+  it("holds the applied step while the dwell hasn't elapsed", () => {
+    expect(settleCatchupRate(1.1, 1.05, 1000, 2500)).toBe(1.05);
+  });
+
+  it("dwells downward moves between steps too (the buffer sawtooth flips both ways)", () => {
+    expect(settleCatchupRate(1.05, 1.1, 1000, 2500)).toBe(1.1);
+  });
+
+  it("applies the new step once the dwell has elapsed", () => {
+    expect(settleCatchupRate(1.1, 1.05, 2500, 2500)).toBe(1.1);
+    expect(settleCatchupRate(1.05, 1.1, 3000, 2500)).toBe(1.05);
+  });
+
+  it("a change after a long-stable step is immediate", () => {
+    expect(settleCatchupRate(1.05, 1.0, 60_000, 2500)).toBe(1.05);
+  });
+
+  it("bailing to 1× is never held back (anti-stall / dropped frames / target reached)", () => {
+    expect(settleCatchupRate(1, 1.15, 100, 2500)).toBe(1);
   });
 });
 
