@@ -130,6 +130,42 @@ describe("sync ON (runLiveSync)", () => {
     expect(v.playbackRate).toBeCloseTo(1.05, 5);
   });
 
+  it("holds a catch-up step through the dwell window instead of dithering", () => {
+    const v = fakeVideo();
+    S.liveSyncEnabled = true;
+    S.liveSyncTarget = 5;
+    h.liveVideo.mockReturnValue(v);
+    h.streamLatency.mockReturnValue(13); // excess 8s → 110%
+    controlLive();
+    expect(v.playbackRate).toBeCloseTo(1.1, 5);
+
+    h.streamLatency.mockReturnValue(11.9); // excess dips under 7s → decision says 105%
+    vi.setSystemTime(T + 300);
+    controlLive();
+    expect(v.playbackRate).toBeCloseTo(1.1, 5); // held — dwell not elapsed
+    expect(S.currentSpeed).toBeCloseTo(1.1, 5);
+
+    vi.setSystemTime(T + 3000); // dwell elapsed → the pending step lands
+    controlLive();
+    expect(v.playbackRate).toBeCloseTo(1.05, 5);
+  });
+
+  it("bails to 100% immediately even inside the dwell window", () => {
+    const v = fakeVideo();
+    S.liveSyncEnabled = true;
+    S.liveSyncTarget = 5;
+    h.liveVideo.mockReturnValue(v);
+    h.streamLatency.mockReturnValue(13); // 110%
+    controlLive();
+    expect(v.playbackRate).toBeCloseTo(1.1, 5);
+
+    h.streamLatency.mockReturnValue(5.5); // back within the allowed delay
+    vi.setSystemTime(T + 300);
+    controlLive();
+    expect(v.playbackRate).toBe(1.0); // not held back by the dwell
+    expect(S.currentSpeed).toBe(1.0);
+  });
+
   it("does nothing while the stream is paused", () => {
     const v = fakeVideo({ paused: true, playbackRate: 1.0 });
     S.liveSyncEnabled = true;

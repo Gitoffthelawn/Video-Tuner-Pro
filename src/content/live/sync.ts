@@ -1,8 +1,8 @@
 // Live-sync catch-up: on a live stream, speed is controlled ONLY here — manual
 // speed is never applied. Drives playback toward the live edge and back to 100%.
 import { ctxValid } from "../platform/browser.js";
-import { MIN_FORWARD_BUFFER } from "../core/constants.js";
-import { decideCatchupSpeed } from "./catchup.js";
+import { MIN_FORWARD_BUFFER, CATCHUP_DWELL_MS } from "../core/constants.js";
+import { decideCatchupSpeed, settleCatchupRate } from "./catchup.js";
 import { S } from "../state.js";
 import { applyAll } from "../speed.js";
 import { teardown } from "../index.js";
@@ -11,6 +11,7 @@ import { forwardBuffer, streamLatency } from "./metrics.js";
 
 let lastDropped = 0; // dropped-frame counter from the previous tick
 let lastControlAt = 0;
+let lastStepAt = 0; // when the applied catch-up step last changed — the dwell anchor
 
 // Net video frames dropped since the previous call (decoder/network can't keep up).
 function droppedFramesDelta(video: HTMLVideoElement): number {
@@ -118,12 +119,19 @@ function runLiveSync(video: HTMLVideoElement): void {
     target,
     reserve: S.liveSyncBufferReserve,
   });
+  const settled = settleCatchupRate(
+    desired,
+    S.currentSpeed,
+    Date.now() - lastStepAt,
+    CATCHUP_DWELL_MS,
+  );
 
-  const changed = Math.abs(desired - S.currentSpeed) > 0.001;
+  const changed = Math.abs(settled - S.currentSpeed) > 0.001;
   if (changed) {
-    S.currentSpeed = desired;
+    lastStepAt = Date.now();
+    S.currentSpeed = settled;
     applyAll(); // badges/audio everywhere; the live video's rate is set below
   }
   applyPitchMode(video);
-  setLiveRate(video, desired, changed);
+  setLiveRate(video, settled, changed);
 }
