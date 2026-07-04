@@ -652,11 +652,12 @@ button {
   border-radius: var(--radius-lg);
   background: #fff;
   box-shadow: 0 1px 2px var(--shadow);
-  /* Travel = 54 (track) − 32 (knob) − 2×2 (insets) = 18px. */
+  /* Travel = 54 (track) − 32 (knob) − 2×2 (insets) = 18px. --knob-x (px, set
+     inline by the component — a live drag position, not just the 0/checked
+     rail) and the pressed grow (--knob-s, controls.css) compose into one
+     transform so both animate together. */
+  transform: translateX(var(--knob-x, 0)) scale(var(--knob-s, 1));
   transition: transform 0.18s var(--ease-spring);
-}
-.switch-track[data-state="checked"] .switch-knob {
-  transform: translateX(18px);
 }
 @media (prefers-reduced-motion: reduce) {
   .switch-knob {

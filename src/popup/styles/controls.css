@@ -276,13 +276,18 @@ html .switch-track[data-state="checked"] {
 html .slider-thumb {
   transition: transform 0.21s var(--ease-spring);
 }
+html .switch-knob {
+  transition: transform 0.21s var(--ease-spring);
+}
 
-/* Moving parts turn to clear glass while in motion (switch knob mid-toggle, slider
-   thumb while dragged / gliding / stepped), then back to solid. A clean see-through
-   pill — a crisp rim + soft lift, with the track showing through; no heavy gloss/blik
-   (that read as a blurry blob, esp. while moving). */
-html .switch-knob.is-moving,
-html .slider-thumb.is-moving {
+/* Pressed/dragged (drag-to-toggle for the switch, drag/glide/keyboard-step for the
+   slider) turns the knob to clear glass, then back to solid on release. A clean
+   see-through pill — a crisp rim + soft lift, with the track showing through; no
+   heavy gloss/blik (that read as a blurry blob, esp. while moving). No transform
+   transition while active so the knob tracks the pointer 1:1 during a real drag
+   instead of lagging behind it. */
+html .switch-knob.is-active,
+html .slider-thumb.is-active {
   background: rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(3px) saturate(140%);
   -webkit-backdrop-filter: blur(3px) saturate(140%);
@@ -291,18 +296,16 @@ html .slider-thumb.is-moving {
     0 1px 4px var(--shadow);
 }
 
-/* The grow step. The thumb grows for its whole move (.is-moving); the switch knob
-   grows on its own phase (.is-grown) so the toggle can stage glass → grow → move →
-   shrink → solid. The two can't share a scale: the switch knob is a wide pill that
+/* The grow step. The two can't share a scale: the switch knob is a wide pill that
    nearly fills its track already, so a big grow balloons it into a blob across the
-   whole track — keep it subtle (stays a pill inside the track). The round-ish slider
-   thumb sits on a thin track, so it can lift more. */
-html .slider-thumb.is-moving {
-  --thumb-s: 1.2;
+   whole track — keep it subtle (stays a pill inside the track). The round-ish
+   slider thumb sits on a thin track, so it can lift more. */
+html .slider-thumb.is-active {
+  --thumb-s: 1.3;
 }
 
-html .switch-knob.is-grown {
-  --knob-s: 1.14;
+html .switch-knob.is-active {
+  --knob-s: 1.12;
 }
 
 /* ── Save-scope menu (single trigger button + a portaled popover) ───────────────
