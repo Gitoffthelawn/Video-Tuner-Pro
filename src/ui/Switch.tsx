@@ -3,12 +3,11 @@
 // natively. data-state stays "checked"/"unchecked" because CSS keys off it (the
 // track colour, and the keyboard-hint badges via #kbdToggle[data-state]).
 //
-// The knob toggles in a choreographed sequence rather than a single slide:
-//   glass → grow → move → shrink → solid colour.
-// Driven here by timed phases — `glass` (clear-glass look), `grown` (scale up) and
-// `pos` (which side the knob sits, via inline --knob-x, so the move waits for its
-// phase instead of following the state instantly). See .switch-knob in
-// sections.css / controls.css. Reduced-motion just snaps.
+// The knob is a real draggable slider, not just a click target. Press it and it
+// grows + turns to clear glass; drag it across and it tracks the pointer 1:1,
+// with a soft rubber-band past either rail; release and it springs to whichever
+// side it's closer to. A plain click (no drag) is the same gesture compressed to
+// zero distance — one code path for both.
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./anim.js";
@@ -23,44 +22,99 @@ interface Props {
   ariaLabel?: string;
 }
 
-export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
-  const [pos, setPos] = useState(checked); // knob side — lags `checked` during the move phase
-  const [glass, setGlass] = useState(false);
-  const [grown, setGrown] = useState(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const prev = useRef(checked);
-  const firstRender = useRef(true);
+const TRAVEL = 18; // px — 54 (track) − 32 (knob) − 2×2 (insets); keep in sync with the CSS
+const DRAG_THRESHOLD = 4; // px of movement before a press counts as a drag, not a click
+const OVERFLOW_DAMPING = 4; // rubber-band resistance for dragging past either rail
+const SETTLE_MS = 260; // >= the knob's transform transition, so `active` outlasts the spring
 
-  const clearTimers = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
+  const [ratio, setRatioState] = useState(checked ? 1 : 0); // knob position, 0..1 (past-rail while dragging)
+  const [active, setActive] = useState(false);
+  const ratioRef = useRef(ratio);
+  const trackRef = useRef<HTMLButtonElement>(null);
+  const dragging = useRef(false);
+  const moved = useRef(false);
+  const startX = useRef(0);
+  const startRatio = useRef(0);
+  const suppressClick = useRef(false); // a drag-release already toggled; swallow the synthesized click
+  const prevChecked = useRef(checked);
+  const settleTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const setRatio = (v: number) => {
+    ratioRef.current = v;
+    setRatioState(v);
   };
 
+  // Follow `checked` when it changes from outside (keyboard activation fires a
+  // native click — same as a mouse click, handled below — but a parent could also
+  // flip it directly) and we're not mid-drag: spring to the new rail and give the
+  // knob the same brief "active" pulse a press would, so it never just snaps.
   useEffect(() => {
-    if (prev.current === checked) return;
-    prev.current = checked;
-    if (firstRender.current) {
-      firstRender.current = false;
-      setPos(checked);
-      return;
-    }
-    clearTimers();
-    if (prefersReducedMotion()) {
-      setPos(checked);
-      return;
-    }
-    const at = (ms: number, fn: () => void) => timers.current.push(setTimeout(fn, ms));
-    setGlass(true); // 1. clear glass
-    at(70, () => setGrown(true)); // 2. grow
-    at(230, () => setPos(checked)); // 3. move across
-    at(400, () => setGrown(false)); // 4. shrink
-    at(560, () => setGlass(false)); // 5. settle to solid colour
+    if (dragging.current || prevChecked.current === checked) return;
+    prevChecked.current = checked;
+    setRatio(checked ? 1 : 0);
+    clearTimeout(settleTimer.current);
+    if (prefersReducedMotion()) return;
+    setActive(true);
+    settleTimer.current = setTimeout(() => setActive(false), SETTLE_MS);
   }, [checked]);
 
-  useEffect(() => () => clearTimers(), []);
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
+
+  const ratioFromClientX = (clientX: number): number => {
+    const raw = startRatio.current + (clientX - startX.current) / TRAVEL;
+    const overflow = raw < 0 ? raw : raw > 1 ? raw - 1 : 0;
+    return clamp01(raw) + overflow / OVERFLOW_DAMPING;
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    clearTimeout(settleTimer.current);
+    dragging.current = true;
+    moved.current = false;
+    startX.current = e.clientX;
+    startRatio.current = checked ? 1 : 0;
+    if (e.pointerId != null) trackRef.current?.setPointerCapture?.(e.pointerId);
+    // Disables the transform transition (controls.css) so the knob tracks the
+    // pointer 1:1 instead of lagging behind it during a real drag.
+    setActive(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragging.current) return;
+    if (Math.abs(e.clientX - startX.current) > DRAG_THRESHOLD) moved.current = true;
+    setRatio(ratioFromClientX(e.clientX));
+  };
+
+  const endDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    if (e.pointerId != null) trackRef.current?.releasePointerCapture?.(e.pointerId);
+    setActive(false);
+    if (moved.current) {
+      const shouldBeChecked = ratioRef.current > 0.5;
+      suppressClick.current = true; // the browser still synthesizes a click after pointerup
+      prevChecked.current = shouldBeChecked;
+      setRatio(shouldBeChecked ? 1 : 0);
+      if (shouldBeChecked !== checked) onChange(shouldBeChecked);
+    } else {
+      setRatio(checked ? 1 : 0); // snap back — the click handler below does the actual toggle
+    }
+  };
+
+  const onClick = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    onChange(!checked);
+  };
 
   return (
     <button
+      ref={trackRef}
       type="button"
       id={id}
       role="switch"
@@ -69,12 +123,16 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
       disabled={disabled}
       data-state={checked ? "checked" : "unchecked"}
       className="switch switch-track"
-      onClick={() => onChange(!checked)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClick={onClick}
     >
       <span
-        className={"switch-knob" + (glass ? " is-moving" : "") + (grown ? " is-grown" : "")}
+        className={"switch-knob" + (active ? " is-active" : "")}
         aria-hidden="true"
-        style={{ "--knob-x": pos ? "18px" : "0px" } as CSSProperties}
+        style={{ "--knob-x": `${ratio * TRAVEL}px` } as CSSProperties}
       />
     </button>
   );

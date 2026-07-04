@@ -7,6 +7,10 @@
 // change from outside glides the thumb (rAF tween) instead of snapping — collapsed
 // to a snap under prefers-reduced-motion.
 //
+// The thumb is a solid pill at rest and only turns to clear glass — grown,
+// backdrop-filter revealed — while actually held (dragged, gliding, or mid
+// keyboard step).
+//
 // a11y: the thumb is the focusable role="slider" (arrow keys ±step, PageUp/Down
 // ±2·step, Home/End); the track is a pointer target with pointer capture.
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
@@ -58,16 +62,16 @@ export function Slider({
   const trackRef = useRef<HTMLSpanElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
 
-  // While the thumb is moving — dragged by the pointer, gliding to a new value, or
-  // stepped by the keyboard — it turns to clear glass (the .is-moving rule in
+  // While the thumb is active — dragged by the pointer, gliding to a new value, or
+  // stepped by the keyboard — it grows and turns to clear glass (.is-active in
   // controls.css), then back to solid once it settles.
-  const [moving, setMoving] = useState(false);
-  const movingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const armClearMoving = () => {
-    clearTimeout(movingTimer.current);
-    movingTimer.current = setTimeout(() => setMoving(false), 80);
+  const [active, setActive] = useState(false);
+  const activeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const armClearActive = () => {
+    clearTimeout(activeTimer.current);
+    activeTimer.current = setTimeout(() => setActive(false), 80);
   };
-  useEffect(() => () => clearTimeout(movingTimer.current), []);
+  useEffect(() => () => clearTimeout(activeTimer.current), []);
 
   const set = (v: number) => {
     displayRef.current = v;
@@ -99,10 +103,10 @@ export function Slider({
       set(value);
       return;
     }
-    setMoving(true);
+    setActive(true);
     tween.current = tweenValue(from, value, 350, set, () => {
       tween.current = null;
-      setMoving(false);
+      setActive(false);
     });
     return stop;
     // displayRef is read intentionally without being a dep (it tracks the latest).
@@ -118,8 +122,8 @@ export function Slider({
   const onPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
     if (disabled) return;
     dragging.current = true;
-    setMoving(true);
-    clearTimeout(movingTimer.current); // held → stay glass until release
+    setActive(true);
+    clearTimeout(activeTimer.current); // held → stay glass until release
     stop();
     if (e.pointerId != null) e.currentTarget.setPointerCapture?.(e.pointerId);
     live(valueFromClientX(e.clientX));
@@ -131,7 +135,7 @@ export function Slider({
   const onPointerUp = (e: React.PointerEvent<HTMLSpanElement>) => {
     if (!dragging.current) return;
     dragging.current = false;
-    setMoving(false);
+    setActive(false);
     if (e.pointerId != null) e.currentTarget.releasePointerCapture?.(e.pointerId);
     onCommit?.(displayRef.current);
   };
@@ -169,8 +173,8 @@ export function Slider({
       set(v);
       onChange?.(v);
       onCommit?.(v);
-      setMoving(true);
-      armClearMoving();
+      setActive(true);
+      armClearActive();
     }
   };
 
@@ -215,7 +219,7 @@ export function Slider({
       </span>
       <span
         ref={thumbRef}
-        className={"slider-thumb" + (moving ? " is-moving" : "")}
+        className={"slider-thumb" + (active ? " is-active" : "")}
         role="slider"
         tabIndex={disabled ? -1 : 0}
         aria-label={ariaLabel}
@@ -232,7 +236,7 @@ export function Slider({
           // Full-width value scale; shift the thumb to stay in bounds (Radix-style)
           // so its centre lands on the track ticks at each value.
           left: `calc(${ratio * 100}% + ${(0.5 - ratio) * THUMB}px)`,
-          // --thumb-s grows the thumb while it's moving (set via .is-moving); the
+          // --thumb-s grows the thumb while it's active (set via .is-active); the
           // centring translate stays put.
           transform: "translate(-50%, -50%) scale(var(--thumb-s, 1))",
         }}
