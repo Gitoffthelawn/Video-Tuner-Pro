@@ -1,4 +1,6 @@
-export const api = typeof browser !== "undefined" ? browser : chrome;
+import { getExtensionApi } from "../../shared/extension-api.js";
+
+export const api = getExtensionApi();
 
 // The popup runs two ways: as the toolbar action page (a top-level extension page)
 // and as the on-video overlay (an iframe embedded in the host page). In the embedded
@@ -7,6 +9,14 @@ export const api = typeof browser !== "undefined" ? browser : chrome;
 // content script. Route both through the background instead, which always knows the
 // host tab from sender.tab. (Chrome works either way; this keeps one path for both.)
 export const EMBEDDED = typeof window !== "undefined" && window.top !== window;
+
+const VIDEO_FRAME_ACTIONS = new Set([
+  "getHistory",
+  "getViewerState",
+  "setViewerState",
+  "setViewerFit",
+]);
+const EMBEDDED_VIDEO_FRAME_ACTIONS = new Set(["getMonitor", ...VIDEO_FRAME_ACTIONS]);
 
 function runtimeSend<T = unknown>(msg: Record<string, unknown>): Promise<T | null> {
   return new Promise((resolve) => {
@@ -38,14 +48,24 @@ export function sendToTab<T = unknown>(
   tabId: number,
   msg: Record<string, unknown>,
 ): Promise<T | null> {
-  if (EMBEDDED) return runtimeSend<T>({ action: "relayToTab", tabId, msg });
-  return new Promise((resolve) => {
-    try {
-      api.tabs.sendMessage(tabId, msg, (resp: unknown) =>
-        resolve(api.runtime.lastError || !resp ? null : (resp as T)),
-      );
-    } catch {
-      resolve(null);
-    }
-  });
+  if (EMBEDDED) {
+    const route = EMBEDDED_VIDEO_FRAME_ACTIONS.has(String(msg.action)) ? "video" : undefined;
+    return runtimeSend<T>({ action: "relayToTab", tabId, msg, ...(route ? { route } : {}) });
+  }
+  const direct = () =>
+    new Promise<T | null>((resolve) => {
+      try {
+        api.tabs.sendMessage(tabId, msg, (resp: unknown) =>
+          resolve(api.runtime.lastError || !resp ? null : (resp as T)),
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+  if (VIDEO_FRAME_ACTIONS.has(String(msg.action))) {
+    return runtimeSend<T>({ action: "relayToTab", tabId, msg, route: "video" }).then(
+      (resp) => resp ?? direct(),
+    );
+  }
+  return direct();
 }

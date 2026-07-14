@@ -10,29 +10,43 @@ const m = vi.hoisted(() => {
     primary: null as unknown,
     list: [] as unknown[],
     graphs: new Map<unknown, unknown>(),
+    collectVideos: vi.fn(),
+    primaryVideo: vi.fn(),
     setupGraph: vi.fn(),
+    routable: true,
     lastSkipVal: null as string | null,
+    lastSkipByVideo: new Map<unknown, string | null>(),
     stream: false,
+    streamReads: 0,
+    liveReads: 0,
     makeParam,
   };
 });
 
 vi.mock("../src/content/audio/translation.js", () => ({ compOn: () => m.compOn }));
 vi.mock("../src/content/live/detection.js", () => ({
-  onStreamPage: () => m.stream,
-  isLive: () => false,
+  onStreamPage: () => {
+    m.streamReads++;
+    return m.stream;
+  },
+  isLive: () => {
+    m.liveReads++;
+    return false;
+  },
 }));
 vi.mock("../src/content/videos.js", () => ({
-  collectVideos: () => m.list,
-  primaryVideo: () => m.primary,
+  collectVideos: m.collectVideos,
+  primaryVideo: m.primaryVideo,
 }));
 vi.mock("../src/content/audio/routing.js", () => ({
   audioContext: () => ({ currentTime: 0 }),
   audioGraphs: m.graphs,
+  graphForCurrentSource: (v: unknown) => (m.routable ? (m.graphs.get(v) ?? null) : null),
+  hasAudioGraphs: () => m.graphs.size > 0,
   setupGraph: m.setupGraph,
   hookAudioGesture: vi.fn(),
   resumeAudioCtx: vi.fn(),
-  lastSkip: () => m.lastSkipVal,
+  lastSkip: (v?: unknown) => (v ? (m.lastSkipByVideo.get(v) ?? m.lastSkipVal) : m.lastSkipVal),
 }));
 
 import { S } from "../src/content/state.js";
@@ -59,9 +73,19 @@ describe("applyAudioComp param mapping", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     m.graphs.clear();
+    m.primary = null;
+    m.list = [];
     m.compOn = true;
+    m.stream = false;
     m.lastSkipVal = null;
+    m.lastSkipByVideo.clear();
+    m.streamReads = 0;
+    m.liveReads = 0;
+    m.collectVideos.mockImplementation(() => m.list);
+    m.primaryVideo.mockImplementation(() => m.primary);
+    m.routable = true;
     S.audioCompEnabled = true;
+    S.autoSlowEnabled = false;
     S.audioCompThreshold = -40;
     S.audioCompKnee = 25;
     S.audioCompRatio = 6;
@@ -123,6 +147,24 @@ describe("applyAudioComp param mapping", () => {
     expect(target(g.gain.gain)).toBe(1);
   });
 
+  it("ramps an existing graph transparent when routing yields during translation", () => {
+    m.compOn = false;
+    m.routable = false;
+    const v = {} as HTMLVideoElement;
+    const g = makeGraph();
+    m.graphs.set(v, g);
+    m.list = [v];
+    m.primary = v;
+
+    const res = applyAudioComp();
+
+    expect(res.engaged).toBe(1);
+    expect(m.setupGraph).not.toHaveBeenCalled();
+    expect(target(g.comp.ratio)).toBe(1);
+    expect(target(g.comp.threshold)).toBe(0);
+    expect(target(g.gain.gain)).toBe(1);
+  });
+
   it("skips re-poking params when nothing changed (same _key)", () => {
     const v = {} as HTMLVideoElement;
     const g = makeGraph();
@@ -156,7 +198,13 @@ describe("applyAudioComp routing decisions", () => {
     m.graphs.clear();
     m.compOn = true;
     m.lastSkipVal = null;
+    m.lastSkipByVideo.clear();
+    m.streamReads = 0;
+    m.liveReads = 0;
+    m.collectVideos.mockImplementation(() => m.list);
+    m.primaryVideo.mockImplementation(() => m.primary);
     m.setupGraph.mockReset();
+    m.routable = true;
     m.stream = false;
     S.autoSlowEnabled = false;
   });
@@ -175,6 +223,20 @@ describe("applyAudioComp routing decisions", () => {
     expect(m.setupGraph).not.toHaveBeenCalled();
   });
 
+  it("OFF with no existing graph: skips the idle video scan entirely", () => {
+    S.audioCompEnabled = false;
+    S.autoSlowEnabled = false;
+    m.collectVideos.mockClear();
+    m.primaryVideo.mockClear();
+
+    const res = applyAudioComp();
+
+    expect(res).toEqual({ engaged: 0, skipped: 0, reason: null });
+    expect(m.collectVideos).not.toHaveBeenCalled();
+    expect(m.primaryVideo).not.toHaveBeenCalled();
+    expect(m.setupGraph).not.toHaveBeenCalled();
+  });
+
   it("auto-slow ON (compression off): routes only the PRIMARY for its analyser", () => {
     S.audioCompEnabled = false;
     S.autoSlowEnabled = true;
@@ -188,6 +250,8 @@ describe("applyAudioComp routing decisions", () => {
     expect(res.engaged).toBe(1); // only primary engaged
     expect(m.setupGraph).toHaveBeenCalledTimes(1);
     expect(m.setupGraph).toHaveBeenCalledWith(primary);
+    expect(m.streamReads).toBe(1);
+    expect(m.liveReads).toBe(1);
   });
 
   it("auto-slow ON but on a live stream: captures nothing (it yields to live-sync)", () => {
@@ -202,6 +266,24 @@ describe("applyAudioComp routing decisions", () => {
     const res = applyAudioComp();
     expect(res.engaged).toBe(0);
     expect(m.setupGraph).not.toHaveBeenCalled();
+    expect(m.streamReads).toBe(1);
+    expect(m.liveReads).toBe(0);
+  });
+
+  it("auto-slow checks the stream gate once even with many videos", () => {
+    S.audioCompEnabled = false;
+    S.autoSlowEnabled = true;
+    const primary = { id: "p" } as unknown as HTMLVideoElement;
+    const otherA = { id: "a" } as unknown as HTMLVideoElement;
+    const otherB = { id: "b" } as unknown as HTMLVideoElement;
+    m.primary = primary;
+    m.list = [otherA, primary, otherB];
+    m.setupGraph.mockImplementation((v: unknown) => (v === primary ? makeGraph() : null));
+
+    applyAudioComp();
+
+    expect(m.streamReads).toBe(1);
+    expect(m.liveReads).toBe(1);
   });
 
   it("ON: routes every video", () => {
@@ -243,6 +325,22 @@ describe("applyAudioComp routing decisions", () => {
       return null;
     });
     const res = applyAudioComp();
+    expect(res.reason).toBe("inuse");
+  });
+
+  it("reads the skip reason from the video that failed, not the global latest skip", () => {
+    S.audioCompEnabled = true;
+    const a = { id: "a" } as unknown as HTMLVideoElement;
+    const b = { id: "b" } as unknown as HTMLVideoElement;
+    m.primary = a;
+    m.list = [a, b];
+    m.setupGraph.mockReturnValue(null);
+    m.lastSkipVal = "loading";
+    m.lastSkipByVideo.set(a, "inuse");
+    m.lastSkipByVideo.set(b, "cors");
+
+    const res = applyAudioComp();
+
     expect(res.reason).toBe("inuse");
   });
 });

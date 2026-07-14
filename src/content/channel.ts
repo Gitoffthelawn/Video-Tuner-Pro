@@ -162,6 +162,9 @@ const SITES: Site[] = [
   },
 ];
 
+let cachedKeyUrl = "";
+let cachedKeys: string[] | null = null;
+
 function siteFor(host: string): Site | null {
   return SITES.find((s) => s.host.test(host)) ?? null;
 }
@@ -229,7 +232,11 @@ function siteLogin(site: Site): string | null {
 // other site has a single key: "<ns>:<login>" (login lower-cased, so /XQC and /xqc
 // share one entry).
 export function channelKeys(): string[] {
+  const cacheUrl = `${window.location.hostname}${window.location.pathname}${window.location.search || ""}`;
+  if (cachedKeyUrl === cacheUrl && cachedKeys) return [...cachedKeys];
   const h = window.location.hostname;
+  let keys: string[] = [];
+  let cacheable = true;
   if (YT_HOST.test(h)) {
     if (!YT_WATCH.test(window.location.pathname)) return [];
     let id: string | null = null,
@@ -241,8 +248,8 @@ export function channelKeys(): string[] {
         if (m) id = m[1];
       }
       if (!handle) {
-        // Handles can be non-ASCII (e.g. a Cyrillic @Ігрович), which YouTube
-        // percent-encodes in the href (/@%D0%86…). Match any non-delimiter run after
+        // Handles can be non-ASCII, which YouTube percent-encodes in the href.
+        // Match any non-delimiter run after
         // "@" and decode it, so the key is the real handle — ASCII handles decode to
         // themselves, so existing keys are unchanged.
         const m = href.match(/\/@([^/?#]+)/);
@@ -257,14 +264,31 @@ export function channelKeys(): string[] {
         }
       }
     }
-    return [id, handle].filter((k): k is string => k != null);
-  }
-  const site = siteFor(h);
-  if (site) {
+    keys = [id, handle].filter((k): k is string => k != null);
+    cacheable = !!id;
+  } else {
+    const site = siteFor(h);
+    if (!site) return [];
     const login = siteLogin(site);
-    return login ? [site.ns + ":" + login] : [];
+    keys = login ? [site.ns + ":" + login] : [];
   }
-  return [];
+  if (keys.length && cacheable) {
+    cachedKeyUrl = cacheUrl;
+    cachedKeys = keys;
+  }
+  return [...keys];
+}
+
+export function sameChannelIdentity(a: string[], b: string[]): boolean {
+  if (!a.length || !b.length) return false;
+  const previous = new Set(a);
+  return b.some((k) => previous.has(k));
+}
+
+export function sameChannelKeys(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const previous = new Set(a);
+  return b.every((k) => previous.has(k));
 }
 
 // The canonical channel key (for saving + change-tracking): the stable id when

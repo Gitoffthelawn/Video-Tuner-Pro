@@ -18,6 +18,7 @@ describe("categoryOf", () => {
     expect(categoryOf("globalSpeed")).toBe("speeds");
     expect(categoryOf("syncTargets")).toBe("delays");
     expect(categoryOf("audioCompRatio")).toBe("audio");
+    expect(categoryOf("compPresets")).toBe("audio");
     expect(categoryOf("keymap")).toBe("shortcuts");
     expect(categoryOf("theme")).toBe("general");
     expect(categoryOf("speedPresets")).toBe("speeds");
@@ -35,6 +36,12 @@ describe("KEYS_BY_CATEGORY", () => {
   it("partitions every registered key exactly once", () => {
     const flat = CATEGORIES.flatMap((c) => KEYS_BY_CATEGORY[c]);
     expect(flat.sort()).toEqual(Object.keys(KEY_CATEGORY).sort());
+  });
+
+  it("includes general settings that category migration must carry between areas", () => {
+    expect(KEYS_BY_CATEGORY.general).toEqual(
+      expect.arrayContaining(["glassOpacity", "sponsorMarks", "overlayPanelPos"]),
+    );
   });
 });
 
@@ -77,6 +84,11 @@ describe("area routing", () => {
     expect(areaForCategory("audio", cfg)).toBe("sync");
     expect(areaForKey("domains", cfg)).toBe("local");
     expect(areaForKey("audioComp", cfg)).toBe("sync");
+  });
+  it("keeps sync routing metadata local even when general settings sync", () => {
+    const cfg = normalizeConfig({ general: true });
+    expect(areaForKey("syncCategories", cfg)).toBe("local");
+    expect(areaForKey("syncMaster", cfg)).toBe("local");
   });
   it("groups a mixed key list by area", () => {
     const cfg = normalizeConfig({ speeds: false });

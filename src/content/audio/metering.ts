@@ -1,8 +1,8 @@
 import { ctxValid } from "../platform/browser.js";
 import { S } from "../state.js";
 import { primaryVideo } from "../videos.js";
-import { translationActive } from "./translation.js";
-import { audioContext, audioGraphs, lastSkip } from "./routing.js";
+import { compOn, translationActive } from "./translation.js";
+import { audioContext, graphForCurrentSource, lastSkip } from "./routing.js";
 import { rmsToDb, deriveOutDb } from "./levels.js";
 import type { AudioGraph, AudioLevels } from "./types.js";
 
@@ -11,10 +11,19 @@ export const audioLevelHist: { in: number; out: number }[] = [];
 export const A_HIST_MS = 150;
 const A_HIST_MAX = 48;
 
-// Only the persistent capture failures become a popup warning; loading/suspended/VOT
-// are transient and resolve on their own.
-function blockReason(skip: string | null): { blocked?: "inuse" | "cors" | "noctx" } {
-  return skip === "inuse" || skip === "cors" || skip === "noctx" ? { blocked: skip } : {};
+export function audioSamplingReady(): boolean {
+  const ctx = audioContext();
+  return !!ctx && ctx.state === "running";
+}
+
+// Only capture failures that make audio features currently unusable become a popup
+// warning. Loading/VOT are transient; a suspended context needs a user gesture.
+function blockReason(skip: string | null): {
+  blocked?: "inuse" | "cors" | "noctx" | "suspended";
+} {
+  return skip === "inuse" || skip === "cors" || skip === "noctx" || skip === "suspended"
+    ? { blocked: skip }
+    : {};
 }
 
 function analyserDb(an: AnalyserNode): number {
@@ -25,23 +34,29 @@ function analyserDb(an: AnalyserNode): number {
 
 function audioOutDb(g: AudioGraph, inDb: number): number {
   const reduction = g.comp && typeof g.comp.reduction === "number" ? g.comp.reduction : 0;
-  return deriveOutDb(inDb, reduction);
+  const limiterReduction =
+    g.limiter && typeof g.limiter.reduction === "number" ? g.limiter.reduction : 0;
+  return deriveOutDb(inDb, reduction + limiterReduction, compOn() ? S.audioCompGain : 0);
+}
+
+function translationStatus(): boolean {
+  return S.audioCompEnabled && translationActive();
 }
 
 export function audioLevels(): AudioLevels {
   const v = primaryVideo();
-  const g = v ? audioGraphs.get(v) : null;
+  const g = v ? graphForCurrentSource(v) : null;
   // Report levels whenever the graph exists — even with compression off (it runs
   // transparent), so the meter and threshold preview stay live.
   if (!g || !g.analyserIn) {
     return {
       active: false,
       enabled: S.audioCompEnabled,
-      translation: translationActive(),
+      translation: translationStatus(),
       // Surface a hard capture failure so the popup can warn + lock the audio cards
       // (monitor.ts runs applyAudioComp() right before this, so the skip is current).
-      // Transient reasons (loading/suspended/VOT) are left off.
-      ...blockReason(lastSkip()),
+      // Transient reasons (loading/VOT) are left off.
+      ...blockReason(lastSkip(v)),
     };
   }
   const inDb = analyserDb(g.analyserIn);
@@ -52,7 +67,7 @@ export function audioLevels(): AudioLevels {
     out: audioOutDb(g, inDb),
     threshold: S.audioCompThreshold,
     knee: S.audioCompKnee, // the meter draws the soft-knee band; popup no longer has the slider
-    translation: translationActive(), // a voice-over translator is playing → compression is paused
+    translation: translationStatus(), // a voice-over translator is playing → compression is paused
   };
 }
 
@@ -64,10 +79,9 @@ export function recordAudioSample(): void {
   if (!ctxValid()) return;
   // No running AudioContext means no media has been routed yet — skip the
   // full-document walk that primaryVideo() does until there's actually a graph.
-  const ctx = audioContext();
-  if (!ctx || ctx.state !== "running") return;
+  if (!audioSamplingReady()) return;
   const v = primaryVideo();
-  const g = v ? audioGraphs.get(v) : null;
+  const g = v ? graphForCurrentSource(v) : null;
   if (!g || !g.analyserIn) return;
   const inDb = analyserDb(g.analyserIn);
   audioLevelHist.push({ in: inDb, out: audioOutDb(g, inDb) });

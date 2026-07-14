@@ -2,7 +2,7 @@
 // classes/ids the CSS keys off) and drives the readout/slider tween via refs
 // (React can't animate a range thumb). The readout has no JSX text child so a
 // re-render can't clobber the tweened value.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { tweenNumber } from "../core/tween-number.js";
 import { SliderRow } from "./SliderRow.js";
 import { msg } from "../i18n.js";
@@ -27,7 +27,7 @@ interface Props {
   forceOpen?: boolean;
 }
 
-export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
+export const SpeedCard = memo(function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
   const slotRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
   const readoutRef = useRef<HTMLSpanElement>(null);
@@ -106,8 +106,9 @@ export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
             tickStep={50}
             value={target}
             animate={s.speed.animate}
+            disabled={live}
             ariaLabel={msg("meterSpeed") || "Speed"}
-            ariaValueText={Math.round(target * 100) + "%"}
+            ariaValueText={Math.round(target) + "%"}
             onChange={s.sliderInput}
             onCommit={s.sliderCommit}
             onDown={() => s.nudge(-s.speedStep)}
@@ -131,6 +132,7 @@ export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
             pinned={s.pinned}
             activePercent={percent}
             onPick={s.setSpeed}
+            disabled={live}
           />
 
           <div className="quick-actions">
@@ -148,6 +150,7 @@ export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
               onPick={s.pickScope}
               saveId="setDefaultBtn"
               resetId="resetBtn"
+              disabled={live}
             />
           </div>
 
@@ -224,4 +227,4 @@ export function SpeedCard({ speed: s, domain, live, forceOpen }: Props) {
       </div>
     </div>
   );
-}
+});

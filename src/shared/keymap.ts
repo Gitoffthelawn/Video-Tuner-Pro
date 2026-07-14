@@ -3,8 +3,25 @@
 // under storage key "keymap". Pure + unit-tested; shared by the content listener
 // and the options-page editor.
 
-export type Action = "slower" | "faster" | "reset" | "toggle" | "hold" | "overlay";
-export const ACTIONS: Action[] = ["slower", "faster", "reset", "toggle", "hold", "overlay"];
+export type Action =
+  | "slower"
+  | "faster"
+  | "reset"
+  | "toggle"
+  | "hold"
+  | "overlay"
+  | "viewer"
+  | "theater";
+export const ACTIONS: Action[] = [
+  "slower",
+  "faster",
+  "reset",
+  "toggle",
+  "hold",
+  "overlay",
+  "viewer",
+  "theater",
+];
 
 export interface Keymap {
   slower: string;
@@ -17,6 +34,11 @@ export interface Keymap {
   // Open/close the on-video overlay popup — works even with the launcher button
   // hidden, for people who turned it off or prefer the keyboard.
   overlay: string;
+  // Pop the video out above the page: viewer = the centred "normal" format,
+  // theater = full-window. Each toggles its own format and switches from the
+  // other, so the two keys jump straight between the views.
+  viewer: string;
+  theater: string;
 }
 
 export const DEFAULT_KEYMAP: Keymap = {
@@ -27,6 +49,8 @@ export const DEFAULT_KEYMAP: Keymap = {
   // X, not F — many players use F for fullscreen.
   hold: "KeyX",
   overlay: "KeyO",
+  viewer: "KeyV",
+  theater: "KeyT",
 };
 
 // A code is bindable if it's a plain letter/digit position — enough to avoid
@@ -105,18 +129,38 @@ export function eventChord(e: KeyboardEvent): KeyChord | null {
   return { code: e.code, shift: e.shiftKey, mod: primaryMod(e), alt: e.altKey };
 }
 
-// Does a stored spec match this event on the running platform (code + Shift + the
-// platform's primary modifier + Alt; the secondary modifier must be released)?
-export function eventMatchesSpec(spec: string | null, e: KeyboardEvent): boolean {
-  if (!spec || secondaryMod(e)) return false;
-  const c = parseChord(spec);
+export function eventMatchesChord(c: KeyChord | null, e: KeyboardEvent): boolean {
   return (
     !!c &&
+    !secondaryMod(e) &&
     c.code === e.code &&
     c.shift === e.shiftKey &&
     c.mod === primaryMod(e) &&
     c.alt === e.altKey
   );
+}
+
+// Does a stored spec match this event on the running platform (code + Shift + the
+// platform's primary modifier + Alt; the secondary modifier must be released)?
+export function eventMatchesSpec(spec: string | null, e: KeyboardEvent): boolean {
+  return eventMatchesChord(parseChord(spec), e);
+}
+
+export function actionConflictsWithChord(
+  action: Action,
+  actionCode: string,
+  chord: KeyChord | null,
+): boolean {
+  if (!actionCode || !chord || chord.code !== actionCode) return false;
+  return !chord.shift && !chord.mod && !chord.alt;
+}
+
+export function actionConflictsWithSpec(
+  action: Action,
+  actionCode: string,
+  spec: string | null,
+): boolean {
+  return actionConflictsWithChord(action, actionCode, parseChord(spec));
 }
 
 // Human-readable chord label, rendered for the given platform. Shift is ⇧
@@ -132,17 +176,45 @@ export function chordLabel(spec: string | null, mac: boolean = IS_MAC): string {
 
 // Coerce stored/partial input into a full, valid keymap. An empty string is a
 // deliberate "unbound" (the action is disabled); invalid or duplicate bindings
-// fall back to the default for that action (defaults never collide).
+// fall back to the default when that default does not collide with a user binding.
 export function normalizeKeymap(raw: unknown): Keymap {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: Keymap = { ...DEFAULT_KEYMAP };
+  const legacy = !!raw && typeof raw === "object";
   const used = new Set<string>();
-  for (const a of ACTIONS) {
+
+  for (let i = 0; i < ACTIONS.length; i++) {
+    const a = ACTIONS[i];
     const code = src[a];
+    const defaultOwner =
+      typeof code === "string" && isBindableCode(code)
+        ? ACTIONS.find((action) => DEFAULT_KEYMAP[action] === code)
+        : null;
+    const laterOwnerRaw = defaultOwner ? src[defaultOwner] : undefined;
+    const laterOwnerNeedsOwnDefault =
+      laterOwnerRaw !== "" &&
+      (typeof laterOwnerRaw !== "string" ||
+        !isBindableCode(laterOwnerRaw) ||
+        laterOwnerRaw === code);
+    const laterDefaultOwnerNeedsCode =
+      !!defaultOwner &&
+      ACTIONS.indexOf(defaultOwner) > i &&
+      laterOwnerNeedsOwnDefault &&
+      (laterOwnerRaw !== undefined || (a === "slower" && defaultOwner === "faster"));
     if (code === "") {
       out[a] = ""; // explicitly unbound — the action does nothing
-    } else if (typeof code === "string" && isBindableCode(code) && !used.has(code)) {
+    } else if (
+      typeof code === "string" &&
+      isBindableCode(code) &&
+      !used.has(code) &&
+      !laterDefaultOwnerNeedsCode
+    ) {
       out[a] = code;
+    } else if (legacy && (a === "viewer" || a === "theater") && !(a in src)) {
+      out[a] = "";
+    } else {
+      const fallback = DEFAULT_KEYMAP[a];
+      out[a] = fallback && !used.has(fallback) ? fallback : "";
     }
     if (out[a]) used.add(out[a]); // an unbound "" never reserves a code
   }

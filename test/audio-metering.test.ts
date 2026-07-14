@@ -9,15 +9,23 @@ const m = vi.hoisted(() => ({
   primary: null as unknown,
   graphs: new Map<unknown, unknown>(),
   translation: false,
+  translationCalls: 0,
   ctx: null as { state: string } | null,
   skip: null as string | null,
 }));
 
 vi.mock("../src/content/videos.js", () => ({ primaryVideo: () => m.primary }));
-vi.mock("../src/content/audio/translation.js", () => ({ translationActive: () => m.translation }));
+vi.mock("../src/content/audio/translation.js", () => ({
+  translationActive: () => {
+    m.translationCalls++;
+    return m.translation;
+  },
+  compOn: () => S.audioCompEnabled && !m.translation,
+}));
 vi.mock("../src/content/audio/routing.js", () => ({
   audioContext: () => m.ctx,
   audioGraphs: m.graphs,
+  graphForCurrentSource: (v: unknown) => m.graphs.get(v) ?? null,
   lastSkip: () => m.skip,
 }));
 
@@ -30,9 +38,10 @@ import {
 } from "../src/content/audio/metering.js";
 
 // rms 0.5 over the buffer → ~-6.02 dB (matches levels.test.ts).
-function makeGraph(reduction: number) {
+function makeGraph(reduction: number, limiterReduction = 0) {
   return {
     comp: { reduction },
+    limiter: { reduction: limiterReduction },
     analyserIn: {
       fftSize: 8,
       getFloatTimeDomainData(buf: Float32Array) {
@@ -46,11 +55,13 @@ beforeEach(() => {
   m.graphs.clear();
   m.primary = null;
   m.translation = false;
+  m.translationCalls = 0;
   m.ctx = null;
   m.skip = null;
   audioLevelHist.length = 0;
   S.audioCompEnabled = true;
   S.audioCompThreshold = -30;
+  S.audioCompGain = 0;
 });
 
 describe("audioLevels", () => {
@@ -65,16 +76,17 @@ describe("audioLevels", () => {
 
   it("reflects the disabled flag while still inactive", () => {
     S.audioCompEnabled = false;
-    expect(audioLevels().enabled).toBe(false);
+    expect(audioLevels()).toMatchObject({ enabled: false, translation: false });
+    expect(m.translationCalls).toBe(0);
   });
 
-  it("flags a hard capture failure (inuse / cors / noctx) as blocked", () => {
-    for (const r of ["inuse", "cors", "noctx"]) {
+  it("flags a capture failure (inuse / cors / noctx / suspended) as blocked", () => {
+    for (const r of ["inuse", "cors", "noctx", "suspended"]) {
       m.skip = r;
       expect(audioLevels().blocked).toBe(r);
     }
     // transient reasons resolve on their own → not surfaced as a hard block
-    for (const r of ["loading", "suspended", "vot", null]) {
+    for (const r of ["loading", "vot", null]) {
       m.skip = r;
       expect(audioLevels().blocked).toBeUndefined();
     }
@@ -99,12 +111,40 @@ describe("audioLevels", () => {
     expect(r.out).toBeCloseTo(r.in!, 6);
   });
 
+  it("includes make-up gain in the reported output level", () => {
+    S.audioCompGain = 12;
+    const v = {} as HTMLVideoElement;
+    m.primary = v;
+    m.graphs.set(v, makeGraph(-3));
+    const r = audioLevels();
+    expect(r.out).toBeCloseTo(2.98, 1);
+  });
+
+  it("includes limiter reduction in the reported output level", () => {
+    S.audioCompGain = 24;
+    const v = {} as HTMLVideoElement;
+    m.primary = v;
+    m.graphs.set(v, makeGraph(-3, -8));
+    const r = audioLevels();
+    expect(r.out).toBeCloseTo(6.98, 1);
+  });
+
   it("flags an active translation (compression yields to VOT)", () => {
     const v = {} as HTMLVideoElement;
     m.primary = v;
     m.graphs.set(v, makeGraph(0));
     m.translation = true;
     expect(audioLevels().translation).toBe(true);
+  });
+
+  it("does not add make-up gain while translation pauses compression", () => {
+    S.audioCompGain = 24;
+    const v = {} as HTMLVideoElement;
+    m.primary = v;
+    m.graphs.set(v, makeGraph(0));
+    m.translation = true;
+    const r = audioLevels();
+    expect(r.out).toBeCloseTo(r.in!, 6);
   });
 
   it("stays live even with compression disabled (transparent graph keeps metering)", () => {
@@ -115,6 +155,8 @@ describe("audioLevels", () => {
     const r = audioLevels();
     expect(r.active).toBe(true);
     expect(r.enabled).toBe(false);
+    expect(r.translation).toBe(false);
+    expect(m.translationCalls).toBe(0);
   });
 
   it("history step is 150 ms", () => {

@@ -54,6 +54,7 @@ export const KEY_CATEGORY: Record<string, Category> = {
   audioCompRelease: "audio",
   audioCompGain: "audio",
   audioCompBaseGain: "audio", // global make-up gain a no-gain preset falls back to
+  compPresets: "audio",
   // Keyboard shortcuts: the on/off toggle and the key map.
   keyboard: "shortcuts",
   keymap: "shortcuts",
@@ -68,10 +69,22 @@ export const KEY_CATEGORY: Record<string, Category> = {
   forceRate: "general",
   badgePos: "general",
   badgePinned: "general",
+  glassOpacity: "general",
+  sponsorMarks: "general",
   // On-video launcher button (opens the popup as an in-page overlay): when to
   // show it, and its dragged per-site position.
   overlayButton: "general",
   overlayBtnPos: "general",
+  overlayPanelPos: "general",
+  viewerAutoEnabled: "general",
+  viewerAuto: "general", // legacy global fallback
+  viewerAutoGlobal: "general",
+  viewerAutoSites: "general",
+  viewerAutoChannels: "general",
+  viewerFitGlobal: "general",
+  viewerFitSites: "general",
+  viewerFitChannels: "general",
+  viewerBackdropVideo: "general",
   liveSyncSeen: "general",
   audioSeen: "general",
   popupGuideSeen: "general",
@@ -142,6 +155,7 @@ export function areaForCategory(cat: Category, cfg: SyncConfig): "sync" | "local
   return cfg[cat] ? "sync" : "local";
 }
 export function areaForKey(key: string, cfg: SyncConfig): "sync" | "local" {
+  if (key === SYNC_META_KEY || key === SYNC_MASTER_KEY) return "local";
   return areaForCategory(categoryOf(key), cfg);
 }
 

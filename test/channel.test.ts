@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { currentChannel, channelKeys, currentChannelName } from "../src/content/channel.js";
+import {
+  currentChannel,
+  channelKeys,
+  currentChannelName,
+  sameChannelIdentity,
+  sameChannelKeys,
+} from "../src/content/channel.js";
 
-function at(hostname: string, pathname: string): void {
-  vi.stubGlobal("location", { hostname, pathname });
+let visit = 0;
+function at(hostname: string, pathname: string, search = ""): void {
+  visit++;
+  const uniqueSearch = `${search}${search ? "&" : "?"}vtp-test=${visit}`;
+  vi.stubGlobal("location", { hostname, pathname, search: uniqueSearch });
 }
 
 afterEach(() => {
@@ -26,9 +35,9 @@ describe("currentChannel (stable per-channel key)", () => {
 
   it("reads a non-ASCII @handle that YouTube percent-encodes in the href", () => {
     at("www.youtube.com", "/watch");
-    // /@Ігрович (Cyrillic) → the href is percent-encoded; the key is the decoded handle.
-    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@%D0%86%D0%B3%D1%80%D0%BE%D0%B2%D0%B8%D1%87">Ігрович</a></ytd-video-owner-renderer>`;
-    expect(currentChannel()).toBe("@Ігрович");
+    // The href is percent-encoded; the key is the decoded handle.
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@caf%C3%A9">Cafe</a></ytd-video-owner-renderer>`;
+    expect(currentChannel()).toBe("@café");
   });
 
   it("reads the /channel/UC… id when there's no handle", () => {
@@ -134,6 +143,44 @@ describe("currentChannel (stable per-channel key)", () => {
     at("www.youtube.com", "/watch");
     expect(currentChannel()).toBeNull();
   });
+
+  it("does not cache an empty YouTube owner before it renders", () => {
+    at("www.youtube.com", "/watch", "?v=one");
+    expect(channelKeys()).toEqual([]);
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@Later">Later</a></ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["@Later"]);
+  });
+
+  it("reuses rendered YouTube owner keys while the URL is unchanged", () => {
+    at("www.youtube.com", "/watch", "?v=one");
+    document.body.innerHTML = `<ytd-video-owner-renderer>
+         <a class="yt-simple-endpoint" href="/@Stable">Stable</a>
+         <a class="yt-simple-endpoint" href="/channel/UCstable">Stable</a>
+       </ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["channel/UCstable", "@Stable"]);
+    document.body.innerHTML = "";
+    expect(channelKeys()).toEqual(["channel/UCstable", "@Stable"]);
+  });
+
+  it("does not freeze a YouTube handle before the canonical id appears", () => {
+    at("www.youtube.com", "/watch", "?v=one");
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@Stable">Stable</a></ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["@Stable"]);
+    document.body.innerHTML = `<ytd-video-owner-renderer>
+         <a class="yt-simple-endpoint" href="/@Stable">Stable</a>
+         <a class="yt-simple-endpoint" href="/channel/UCstable">Stable</a>
+       </ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["channel/UCstable", "@Stable"]);
+  });
+
+  it("invalidates rendered YouTube owner keys when the video URL changes", () => {
+    at("www.youtube.com", "/watch", "?v=one");
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@One">One</a></ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["@One"]);
+    at("www.youtube.com", "/watch", "?v=two");
+    document.body.innerHTML = `<ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@Two">Two</a></ytd-video-owner-renderer>`;
+    expect(channelKeys()).toEqual(["@Two"]);
+  });
 });
 
 describe("currentChannelName (display name for the header)", () => {
@@ -170,5 +217,29 @@ describe("currentChannelName (display name for the header)", () => {
   it("falls back to the login for sites without a matched name node (TikTok)", () => {
     at("www.tiktok.com", "/@charli/live");
     expect(currentChannelName()).toBe("charli");
+  });
+});
+
+describe("sameChannelIdentity", () => {
+  it("treats a late-rendered canonical id as the same YouTube channel", () => {
+    expect(sameChannelIdentity(["@WGC098"], ["channel/UCabc_123", "@WGC098"])).toBe(true);
+  });
+
+  it("treats unrelated channels as different", () => {
+    expect(sameChannelIdentity(["channel/UCone", "@one"], ["channel/UCtwo", "@two"])).toBe(false);
+    expect(sameChannelIdentity([], ["@one"])).toBe(false);
+  });
+});
+
+describe("sameChannelKeys", () => {
+  it("detects a late-rendered alias so saved speeds can be re-resolved", () => {
+    expect(sameChannelKeys(["channel/UCabc_123"], ["channel/UCabc_123", "@WGC098"])).toBe(false);
+  });
+
+  it("ignores order but requires the same full key set", () => {
+    expect(
+      sameChannelKeys(["@WGC098", "channel/UCabc_123"], ["channel/UCabc_123", "@WGC098"]),
+    ).toBe(true);
+    expect(sameChannelKeys(["@one"], ["@two"])).toBe(false);
   });
 });

@@ -3,7 +3,7 @@
 // Used for the theme / language / on-video pickers (and mirrors the popup's scope
 // picker). role=radiogroup with arrow-key roving focus. `cols` lays the cells out
 // in a grid (the language picker); omit for a single row.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./anim.js";
 
 interface Item<T extends string> {
@@ -18,6 +18,7 @@ interface Props<T extends string> {
   ariaLabel: string;
   id?: string;
   className?: string; // "seg" (row) or "lang-grid" (grid)
+  disabled?: boolean;
 }
 
 const DIR: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
@@ -29,7 +30,9 @@ export function Segmented<T extends string>({
   ariaLabel,
   id,
   className = "seg",
+  disabled = false,
 }: Props<T>) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const btns = useRef<Partial<Record<T, HTMLButtonElement | null>>>({});
   const [pill, setPill] = useState<{
     left: number;
@@ -45,14 +48,37 @@ export function Segmented<T extends string>({
   const firstSlide = useRef(true);
   const slideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     const b = btns.current[value];
     if (!b) {
       setPill(null);
       return;
     }
-    setPill({ left: b.offsetLeft, top: b.offsetTop, width: b.offsetWidth, height: b.offsetHeight });
-  }, [value, items.length]);
+    const width = b.offsetWidth;
+    const height = b.offsetHeight;
+    if (width <= 0 || height <= 0) {
+      setPill(null);
+      return;
+    }
+    setPill({ left: b.offsetLeft, top: b.offsetTop, width, height });
+  }, [value]);
+
+  useLayoutEffect(() => {
+    measure();
+    const raf = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(raf);
+  }, [measure, items.length]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const root = rootRef.current;
+    const active = btns.current[value];
+    if (!root || !active) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(root);
+    ro.observe(active);
+    return () => ro.disconnect();
+  }, [measure, value, items.length]);
 
   useEffect(() => {
     if (firstSlide.current) {
@@ -67,6 +93,7 @@ export function Segmented<T extends string>({
   }, [value]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
     const d = DIR[e.key];
     if (!d) return;
     e.preventDefault();
@@ -81,7 +108,13 @@ export function Segmented<T extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
       id={id}
-      className={className + (sliding ? " sliding" : "")}
+      ref={rootRef}
+      className={
+        className +
+        (pill ? " has-pill" : "") +
+        (sliding ? " sliding" : "") +
+        (disabled ? " is-disabled" : "")
+      }
       onKeyDown={onKeyDown}
     >
       {pill && (
@@ -102,9 +135,12 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
-            tabIndex={active ? 0 : -1}
+            disabled={disabled}
+            tabIndex={!disabled && active ? 0 : -1}
             className={"seg-btn" + (active ? " is-active" : "")}
-            onClick={() => onChange(it.value)}
+            onClick={() => {
+              if (!disabled) onChange(it.value);
+            }}
           >
             <span className="seg-label">{it.label}</span>
           </button>

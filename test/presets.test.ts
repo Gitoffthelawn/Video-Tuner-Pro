@@ -5,7 +5,6 @@ import {
   normalizeSpeedMax,
   normalizeSpeedStep,
   normalizeHoldSpeed,
-  presetFractions,
   quickPresetIndices,
   DEFAULT_PRESETS,
   MAX_PRESETS,
@@ -17,7 +16,9 @@ import {
   formatChord,
   parseChord,
   eventChord,
+  eventMatchesChord,
   eventMatchesSpec,
+  actionConflictsWithSpec,
   chordLabel,
   IS_MAC,
   DEFAULT_KEYMAP,
@@ -61,10 +62,6 @@ describe("normalizePresets", () => {
     expect(normalizePresets([60])).toEqual([60]); // one in, one out
     expect(normalizePresets(new Array(20).fill(100))).toHaveLength(MAX_PRESETS);
   });
-  it("presetFractions divides by 100", () => {
-    expect(presetFractions([100, 200])).toContain(1);
-    expect(presetFractions([100, 200])).toContain(2);
-  });
 });
 
 describe("normalizeSpeedMax", () => {
@@ -107,7 +104,7 @@ describe("normalizeHoldSpeed", () => {
 describe("normalizeKeymap", () => {
   it("defaults missing/invalid bindings", () => {
     expect(normalizeKeymap(undefined)).toEqual(DEFAULT_KEYMAP);
-    expect(normalizeKeymap({ slower: "Shift", faster: 42 })).toEqual(DEFAULT_KEYMAP);
+    expect(normalizeKeymap("bad")).toEqual(DEFAULT_KEYMAP);
   });
   it("accepts valid bindable codes", () => {
     expect(normalizeKeymap({ slower: "KeyJ", faster: "KeyK", reset: "Digit0" })).toEqual({
@@ -115,12 +112,46 @@ describe("normalizeKeymap", () => {
       slower: "KeyJ",
       faster: "KeyK",
       reset: "Digit0",
+      viewer: "",
+      theater: "",
     });
+  });
+  it("does not add viewer shortcuts to an existing stored keymap", () => {
+    const km = normalizeKeymap({
+      slower: "KeyJ",
+      faster: "KeyK",
+      reset: "Digit0",
+      toggle: "KeyS",
+      hold: "KeyX",
+      overlay: "KeyO",
+    });
+    expect(km.viewer).toBe("");
+    expect(km.theater).toBe("");
   });
   it("drops a duplicate binding back to its default", () => {
     const km = normalizeKeymap({ slower: "KeyZ", faster: "KeyZ" });
     expect(km.slower).toBe("KeyZ");
     expect(km.faster).not.toBe("KeyZ");
+  });
+  it("keeps a core action bound when a corrupt blob duplicates its default key", () => {
+    const km = normalizeKeymap({ slower: "KeyD", faster: "KeyD" });
+    expect(km.slower).toBe("KeyA");
+    expect(km.faster).toBe("KeyD");
+  });
+  it("keeps later core actions bound when a corrupt blob duplicates their default key", () => {
+    const km = normalizeKeymap({ reset: "KeyV", viewer: "KeyV" });
+    expect(km.reset).toBe("KeyR");
+    expect(km.viewer).toBe("KeyV");
+  });
+  it("keeps a later core action bound when a partial blob takes its default key", () => {
+    const km = normalizeKeymap({ slower: "KeyD" });
+    expect(km.slower).toBe("KeyA");
+    expect(km.faster).toBe("KeyD");
+  });
+  it("does not let a default binding shadow a later stored action", () => {
+    const km = normalizeKeymap({ reset: "KeyO", viewer: "KeyV", theater: "KeyT" });
+    expect(km.reset).toBe("KeyO");
+    expect(km.overlay).toBe("");
   });
 });
 
@@ -181,6 +212,19 @@ describe("key chords", () => {
     expect(eventMatchesSpec("M+KeyG", ev("KeyG", { [SECONDARY]: true }))).toBe(false);
     expect(eventMatchesSpec("KeyG", ev("KeyG", { [SECONDARY]: true }))).toBe(false);
     expect(eventMatchesSpec(null, ev("KeyG"))).toBe(false);
+  });
+  it("eventMatchesChord reuses a parsed chord without reparsing the stored spec", () => {
+    const chord = parseChord("S+Digit1");
+    expect(eventMatchesChord(chord, ev("Digit1", { shiftKey: true }))).toBe(true);
+    expect(eventMatchesChord(chord, ev("Digit1"))).toBe(false);
+    expect(eventMatchesChord(null, ev("Digit1", { shiftKey: true }))).toBe(false);
+  });
+  it("detects preset/action conflicts without shadowing shifted speed-step chords", () => {
+    expect(actionConflictsWithSpec("slower", "KeyA", "S+KeyA")).toBe(false);
+    expect(actionConflictsWithSpec("slower", "KeyA", "KeyA")).toBe(true);
+    expect(actionConflictsWithSpec("slower", "KeyA", "M+KeyA")).toBe(false);
+    expect(actionConflictsWithSpec("reset", "KeyR", "S+KeyR")).toBe(false);
+    expect(actionConflictsWithSpec("reset", "KeyR", "KeyR")).toBe(true);
   });
   it("chordLabel renders per the requested platform", () => {
     expect(chordLabel("S+Digit1", true)).toBe("⇧1");

@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "3.0.8",
+  "version": "3.1.0",
+  "minimum_chrome_version": "111",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
   "icons": {
@@ -11,7 +12,7 @@
     "96": "icons/icon-96.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "permissions": ["storage", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup/popup.html",
@@ -26,6 +27,9 @@
   "options_ui": {
     "page": "options/options.html",
     "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
   },
   "content_scripts": [
     {
@@ -44,7 +48,7 @@
     {
       "matches": ["<all_urls>"],
       "all_frames": true,
-      "js": ["audio-inject.js"],
+      "js": ["page-bridge.js"],
       "run_at": "document_start",
       "world": "MAIN"
     }
@@ -55,8 +59,9 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["popup/popup.html"],
-      "matches": ["<all_urls>"]
+      "resources": ["popup/popup.html", "quality-inject.js"],
+      "matches": ["<all_urls>"],
+      "use_dynamic_url": true
     }
   ],
   "browser_specific_settings": {

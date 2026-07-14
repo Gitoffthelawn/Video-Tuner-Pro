@@ -7,14 +7,19 @@ export interface SpeedResponse {
   speed: number;
   live?: boolean;
   channel?: string | null;
+  channelKeys?: string[] | null;
   channelName?: string | null;
   scope?: Scope | null;
+  drm?: boolean;
+  viewerSupported?: boolean;
 }
 
 export interface TargetResponse {
   target: number;
   scope?: Scope | null;
   channel?: string | null;
+  channelKeys?: string[] | null;
+  channelName?: string | null;
   live?: boolean;
 }
 
@@ -23,6 +28,30 @@ export interface AutoSlowResponse {
   target: number; // comfort ceiling, syllables/sec
   scope?: Scope | null;
   channel?: string | null;
+  channelKeys?: string[] | null;
+  channelName?: string | null;
+}
+
+export interface ViewerAutoResponse {
+  mode: "off" | "normal" | "theater";
+  scope?: Scope | null;
+  channel?: string | null;
+  channelKeys?: string[] | null;
+  channelName?: string | null;
+}
+
+export interface ViewerStateResponse {
+  mode: "off" | "normal" | "theater";
+  success?: boolean;
+}
+
+export interface ViewerFitResponse {
+  mode: "contain" | "cover" | "fill";
+  scope?: Scope | null;
+  channel?: string | null;
+  channelKeys?: string[] | null;
+  channelName?: string | null;
+  success?: boolean;
 }
 
 // After the content script clears/re-resolves a scope, the new value isn't ready

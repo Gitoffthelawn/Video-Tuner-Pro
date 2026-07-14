@@ -2,7 +2,7 @@
 // a video stays silent.
 import { api, ctxValid } from "../platform/browser.js";
 import { S } from "../state.js";
-import { collectVideos } from "../videos.js";
+import { hasVideos } from "../videos.js";
 import { onStreamPage } from "../live/detection.js";
 
 interface IconPayload {
@@ -31,11 +31,11 @@ export function updateBadge(): void {
     lastBadge = null;
   }
 
-  const hasVideo = collectVideos().length > 0;
+  const hasVideo = hasVideos();
   let payload: IconPayload;
   if (hasVideo) {
     payload = { action: "icon", text: speedLabel(S.currentSpeed), live: onStreamPage() };
-  } else if (badgeHadVideo || urlChanged) {
+  } else if (badgeHadVideo) {
     payload = { action: "icon", clear: true };
   } else {
     return;

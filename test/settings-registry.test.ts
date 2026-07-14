@@ -8,6 +8,7 @@ const fx = vi.hoisted(() => ({
   updateTimeBadge: vi.fn(),
   flashBadge: vi.fn(),
   updateLauncher: vi.fn(),
+  releaseAutoSlow: vi.fn(),
 }));
 vi.mock("../src/content/speed.js", () => ({ applyAll: fx.applyAll, resetAudios: fx.resetAudios }));
 vi.mock("../src/content/badge/overlay.js", () => ({
@@ -15,6 +16,7 @@ vi.mock("../src/content/badge/overlay.js", () => ({
   flashBadge: fx.flashBadge,
 }));
 vi.mock("../src/content/overlay/launcher.js", () => ({ updateLauncher: fx.updateLauncher }));
+vi.mock("../src/content/audio/autoslow.js", () => ({ releaseAutoSlow: fx.releaseAutoSlow }));
 
 import { S } from "../src/content/state.js";
 import {
@@ -40,7 +42,17 @@ describe("REGISTRY_KEYS", () => {
     expect(REGISTRY_KEYS).toContain("overlayButton");
     expect(REGISTRY_KEYS).toContain("audioCompGain");
     // Cross-scope / per-domain keys must NOT be in the registry.
-    for (const k of ["domains", "syncTargets", "autoSlowSites", "badgePos", "overlayBtnPos"]) {
+    for (const k of [
+      "domains",
+      "syncTargets",
+      "autoSlowSites",
+      "viewerAutoSites",
+      "viewerAutoChannels",
+      "viewerFitSites",
+      "viewerFitChannels",
+      "badgePos",
+      "overlayBtnPos",
+    ]) {
       expect(REGISTRY_KEYS).not.toContain(k);
     }
   });
@@ -54,6 +66,7 @@ describe("loadRegistry — defaults", () => {
     expect(S.audioSpeedEnabled).toBe(false); // opt-in
     expect(S.forceRate).toBe(false);
     expect(S.keyboardEnabled).toBe(true);
+    expect(S.keymap.hold).toBe("KeyX");
     expect(S.holdSpeed).toBe(2.0);
     expect(S.overlayButton).toBe("fullscreen");
     expect(S.audioCompEnabled).toBe(true);
@@ -118,6 +131,19 @@ describe("applyRegistryChanges — value + side-effects", () => {
     applyRegistryChanges(changes({ overlayButton: "always" }));
     expect(S.overlayButton).toBe("always");
     expect(fx.updateLauncher).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-evaluates the launcher when viewer modes are toggled", () => {
+    applyRegistryChanges(changes({ viewerAutoEnabled: false }));
+    expect(S.viewerAutoEnabled).toBe(false);
+    expect(fx.updateLauncher).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases auto-slow immediately when the master toggle is disabled", () => {
+    applyRegistryChanges(changes({ autoSlowEnabled: false }));
+
+    expect(S.autoSlowEnabled).toBe(false);
+    expect(fx.releaseAutoSlow).toHaveBeenCalledTimes(1);
   });
 
   it("sets audio-compressor values without firing a side-effect (that stays bespoke)", () => {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveSpeed, resolveSyncTarget, resolveAutoSlow } from "../src/content/core/resolve.js";
+import {
+  resolveSpeed,
+  resolveSyncTarget,
+  resolveAutoSlow,
+  resolveViewerAuto,
+  resolveViewerFit,
+} from "../src/content/core/resolve.js";
 
 // The priority chain (below the manual in-tab override, which the caller owns):
 // channel > site > global > 100%.
@@ -15,6 +21,15 @@ describe("resolveSpeed", () => {
 
   it("matches a channel speed saved under either key form", () => {
     expect(resolveSpeed(["UC1", "@handle"], D, {}, { "@handle": 1.75 }, undefined)).toEqual({
+      speed: 1.75,
+      scope: "channel",
+    });
+  });
+
+  it("uses the latest saved alias when both channel key forms exist", () => {
+    expect(
+      resolveSpeed(["UC1", "@handle"], D, {}, { UC1: 2.0, "@handle": 1.75 }, undefined),
+    ).toEqual({
       speed: 1.75,
       scope: "channel",
     });
@@ -57,6 +72,15 @@ describe("resolveSyncTarget", () => {
     });
   });
 
+  it("uses the latest saved alias when both channel target key forms exist", () => {
+    expect(
+      resolveSyncTarget(["UC1", "@h"], "youtube.com", {}, { UC1: 9, "@h": 6 }, undefined),
+    ).toEqual({
+      target: 6,
+      scope: "channel",
+    });
+  });
+
   it("falls to the site target when no channel target", () => {
     expect(resolveSyncTarget(["twitch:x"], D, { [D]: 8 }, {}, 12)).toEqual({
       target: 8,
@@ -73,65 +97,150 @@ describe("resolveSyncTarget", () => {
   });
 });
 
-// Each scope stores a bundle {on, target}; the highest-priority scope with an entry
-// supplies both. Priority channel > site > global; default off/6. (Floor is global.)
+// Each scope stores a target; the highest-priority scope with an entry supplies
+// it. Priority channel > site > global; default 6. Enable/floor are global.
 describe("resolveAutoSlow", () => {
   const D = "youtube.com";
-  const B = (on: boolean, target = 6) => ({ on, target });
+  const B = (target = 6, on?: boolean) => (on == null ? { target } : { target, on });
 
-  it("a channel bundle wins over site + global", () => {
-    expect(resolveAutoSlow(["UC1"], D, { [D]: B(false) }, { UC1: B(true, 8) }, B(false))).toEqual({
-      enabled: true,
+  it("a channel target wins over site + global", () => {
+    expect(resolveAutoSlow(["UC1"], D, { [D]: B() }, { UC1: B(8) }, B())).toEqual({
       target: 8,
       scope: "channel",
     });
   });
 
-  it("an explicit channel `off` overrides a broader `on`", () => {
-    expect(resolveAutoSlow(["UC1"], D, { [D]: B(true) }, { UC1: B(false) }, B(true))).toEqual({
-      enabled: false,
-      target: 6,
+  it("ignores the legacy scoped on/off field", () => {
+    expect(
+      resolveAutoSlow(["UC1"], D, { [D]: B(9, true) }, { UC1: B(5, false) }, B(8, true)),
+    ).toEqual({
+      target: 5,
       scope: "channel",
     });
   });
 
-  it("falls to the site bundle when no channel entry", () => {
-    expect(resolveAutoSlow(["UC1"], D, { [D]: B(true, 5) }, {}, B(false))).toEqual({
-      enabled: true,
+  it("uses the latest saved alias when both auto-slow channel key forms exist", () => {
+    expect(resolveAutoSlow(["UC1", "@h"], D, {}, { UC1: B(8), "@h": B(5) }, undefined)).toEqual({
+      target: 5,
+      scope: "channel",
+    });
+  });
+
+  it("falls to the site target when no channel entry", () => {
+    expect(resolveAutoSlow(["UC1"], D, { [D]: B(5) }, {}, B())).toEqual({
       target: 5,
       scope: "site",
     });
   });
 
-  it("falls to the global bundle when no channel/site entry", () => {
-    expect(resolveAutoSlow([], D, {}, {}, B(true, 7))).toEqual({
-      enabled: true,
+  it("falls to the global target when no channel/site entry", () => {
+    expect(resolveAutoSlow([], D, {}, {}, B(7))).toEqual({
       target: 7,
       scope: "global",
     });
   });
 
-  it("defaults to off with nothing saved (scope null)", () => {
+  it("defaults to no scope with nothing saved", () => {
     expect(resolveAutoSlow([], D, {}, {}, undefined)).toEqual({
-      enabled: false,
       target: 6,
       scope: null,
     });
   });
 
   it("clamps an out-of-range target", () => {
-    expect(resolveAutoSlow([], D, {}, {}, B(true, 99))).toEqual({
-      enabled: true,
+    expect(resolveAutoSlow([], D, {}, {}, B(99))).toEqual({
       target: 12,
       scope: "global",
     });
   });
 
   it("treats a site entry for another host as absent", () => {
-    expect(resolveAutoSlow([], D, { "other.com": B(true) }, {}, undefined)).toEqual({
-      enabled: false,
+    expect(resolveAutoSlow([], D, { "other.com": B() }, {}, undefined)).toEqual({
       target: 6,
       scope: null,
     });
+  });
+});
+
+describe("resolveViewerAuto", () => {
+  const D = "youtube.com";
+
+  it("a channel mode wins over site + global", () => {
+    expect(resolveViewerAuto(["UC1"], D, { [D]: "off" }, { UC1: "theater" }, "normal")).toEqual({
+      mode: "theater",
+      scope: "channel",
+    });
+  });
+
+  it("an explicit channel off overrides a broader mode", () => {
+    expect(resolveViewerAuto(["UC1"], D, { [D]: "normal" }, { UC1: "off" }, "theater")).toEqual({
+      mode: "off",
+      scope: "channel",
+    });
+  });
+
+  it("uses the latest saved alias when both viewer-auto channel key forms exist", () => {
+    expect(
+      resolveViewerAuto(["UC1", "@h"], D, {}, { UC1: "theater", "@h": "normal" }, "off"),
+    ).toEqual({
+      mode: "normal",
+      scope: "channel",
+    });
+  });
+
+  it("falls to the site mode when no channel entry", () => {
+    expect(resolveViewerAuto(["UC1"], D, { [D]: "normal" }, {}, "theater")).toEqual({
+      mode: "normal",
+      scope: "site",
+    });
+  });
+
+  it("falls to the global mode when no channel/site entry", () => {
+    expect(resolveViewerAuto([], D, {}, {}, "theater")).toEqual({
+      mode: "theater",
+      scope: "global",
+    });
+  });
+
+  it("defaults to off with nothing saved", () => {
+    expect(resolveViewerAuto([], D, {}, {}, undefined)).toEqual({ mode: "off", scope: null });
+  });
+});
+
+describe("resolveViewerFit", () => {
+  const D = "youtube.com";
+
+  it("a channel mode wins over site + global", () => {
+    expect(resolveViewerFit(["UC1"], D, { [D]: "cover" }, { UC1: "fill" }, "contain")).toEqual({
+      mode: "fill",
+      scope: "channel",
+    });
+  });
+
+  it("uses the latest saved alias when both viewer-fit channel key forms exist", () => {
+    expect(
+      resolveViewerFit(["UC1", "@h"], D, {}, { UC1: "cover", "@h": "fill" }, "contain"),
+    ).toEqual({
+      mode: "fill",
+      scope: "channel",
+    });
+  });
+
+  it("falls to the site mode when no channel entry", () => {
+    expect(resolveViewerFit(["UC1"], D, { [D]: "cover" }, {}, "fill")).toEqual({
+      mode: "cover",
+      scope: "site",
+    });
+  });
+
+  it("falls to the global mode when no channel/site entry", () => {
+    expect(resolveViewerFit([], D, {}, {}, "fill")).toEqual({
+      mode: "fill",
+      scope: "global",
+    });
+  });
+
+  it("defaults to contain with nothing saved", () => {
+    expect(resolveViewerFit([], D, {}, {}, undefined)).toEqual({ mode: "contain", scope: null });
   });
 });

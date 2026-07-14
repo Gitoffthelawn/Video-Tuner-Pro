@@ -12,8 +12,37 @@
 // internals, so we describe narrow shapes for exactly the fields we read.
 (function () {
   "use strict";
+  const BRIDGE_VERSION = "2026-07-10-current-youtube-live";
+  const win = window as typeof window & {
+    __vtpLatencyBridgeInstalled?: boolean | string;
+    __vtpLatencyBridgeCleanup?: () => void;
+    __vtpQualityHls?: Array<{ hls: HlsLike; video?: HTMLVideoElement | null }>;
+    ytInitialPlayerResponse?: YouTubePlayerResponse | null;
+  };
+  if (win.__vtpLatencyBridgeInstalled === BRIDGE_VERSION) return;
+  try {
+    win.__vtpLatencyBridgeCleanup?.();
+  } catch (e) {
+    /* stale bridge cleanup must not block the new bridge */
+  }
+  win.__vtpLatencyBridgeInstalled = BRIDGE_VERSION;
   const ATTR = "data-vtp-latency";
   const LIVE_ATTR = "data-vtp-live";
+  const HOSTNAME = location.hostname;
+  const IS_TWITCH = /(^|\.)twitch\.tv$/i.test(HOSTNAME);
+  const IS_YOUTUBE = /(^|\.)youtube(-nocookie)?\.com$/i.test(HOSTNAME);
+
+  function isActiveBridge(): boolean {
+    return win.__vtpLatencyBridgeInstalled === BRIDGE_VERSION;
+  }
+
+  function setAttrIfChanged(root: HTMLElement, name: string, value: string | null): void {
+    if (value == null) {
+      if (root.hasAttribute(name)) root.removeAttribute(name);
+    } else if (root.getAttribute(name) !== value) {
+      root.setAttribute(name, value);
+    }
+  }
 
   // --- Narrow shapes of the private internals we touch -----------------------
   interface TwitchStats {
@@ -26,12 +55,31 @@
   }
   interface HlsLike {
     latency: number;
+    levels?: unknown;
     media?: unknown;
     attachMedia?: unknown;
     recoverMediaError?: unknown;
   }
+  interface YouTubeVideoDetails {
+    videoId?: unknown;
+    isLive?: unknown;
+    isLiveContent?: unknown;
+  }
+  interface YouTubePlayerResponse {
+    videoDetails?: YouTubeVideoDetails | null;
+    microformat?: {
+      playerMicroformatRenderer?: {
+        liveBroadcastDetails?: { isLiveNow?: unknown } | null;
+      } | null;
+    } | null;
+  }
   interface YouTubePlayer extends HTMLElement {
-    getVideoData?: () => { isLive?: unknown } | null;
+    getVideoData?: () => {
+      isLive?: unknown;
+      video_id?: unknown;
+      videoId?: unknown;
+    } | null;
+    getPlayerResponse?: () => YouTubePlayerResponse | null;
     getStatsForNerds?: () => Record<string, unknown> | null;
     getProgressState?: () => { seekableEnd?: number; current?: number } | null;
     getPlayerState?: () => number;
@@ -107,11 +155,28 @@
   }
 
   let twitchPlayer: TwitchPlayer | null = null;
+  let nextTwitchScanAt = 0;
+  let twitchScanDelay = 5000;
+  const TWITCH_SCAN_INITIAL_MS = 5000;
+  const TWITCH_SCAN_MAX_MS = 60000;
+  function resetTwitchScanBackoff(): void {
+    nextTwitchScanAt = 0;
+    twitchScanDelay = TWITCH_SCAN_INITIAL_MS;
+  }
   function twitchLatency(): number | null {
+    if (!IS_TWITCH) return null;
     let lat = twitchPlayer ? twitchLatencyOf(twitchPlayer) : null;
     if (lat == null) {
+      const now = Date.now();
+      if (now < nextTwitchScanAt) return null;
       twitchPlayer = findTwitchPlayer();
-      lat = twitchPlayer ? twitchLatencyOf(twitchPlayer) : null;
+      if (twitchPlayer) {
+        resetTwitchScanBackoff();
+        lat = twitchLatencyOf(twitchPlayer);
+      } else {
+        nextTwitchScanAt = now + twitchScanDelay;
+        twitchScanDelay = Math.min(twitchScanDelay * 2, TWITCH_SCAN_MAX_MS);
+      }
     }
     return lat;
   }
@@ -133,20 +198,89 @@
         typeof h.recoverMediaError === "function")
     );
   }
+  function activeHls(hls: HlsLike | null): hls is HlsLike {
+    if (!isHls(hls)) return false;
+    return hls.media instanceof HTMLMediaElement && hls.media.isConnected;
+  }
+  function sharedHls(): HlsLike | null {
+    for (const entry of win.__vtpQualityHls || []) {
+      if (entry.hls.media instanceof HTMLVideoElement && entry.video !== entry.hls.media) {
+        entry.video = entry.hls.media;
+      }
+      if (activeHls(entry.hls)) return entry.hls;
+    }
+    return null;
+  }
+  function readProp(o: object, key: string): unknown {
+    try {
+      return (o as Record<string, unknown>)[key];
+    } catch (e) {
+      return null;
+    }
+  }
+  function findHlsInValue(
+    value: unknown,
+    seen: WeakSet<object>,
+    depth: number,
+    budget: { n: number },
+  ): HlsLike | null {
+    if (isHls(value) && activeHls(value)) return value;
+    if (!value || typeof value !== "object" || depth <= 0 || budget.n <= 0) return null;
+    if (value === window || value === document) return null;
+    const obj = value as object;
+    if (seen.has(obj)) return null;
+    seen.add(obj);
+    budget.n--;
+
+    if (!(value instanceof Node)) {
+      for (const key of [
+        "hls",
+        "hlsjs",
+        "hlsInstance",
+        "player",
+        "mediaPlayer",
+        "mediaPlayerInstance",
+        "videoPlayer",
+        "engine",
+        "playback",
+        "controller",
+        "state",
+        "props",
+      ]) {
+        const found = findHlsInValue(readProp(obj, key), seen, depth - 1, budget);
+        if (found) return found;
+      }
+    }
+
+    let keys: string[];
+    try {
+      keys = Object.keys(obj).slice(0, 80);
+    } catch (e) {
+      return null;
+    }
+    for (const key of keys) {
+      const found = findHlsInValue(readProp(obj, key), seen, depth - 1, budget);
+      if (found) return found;
+    }
+    return null;
+  }
   function findHls(): HlsLike | null {
-    const roots = document.querySelectorAll("video, .video-player, [class*='player']");
+    const roots = Array.from(document.querySelectorAll("video"));
     for (const el of roots) {
+      const fromNode = findHlsInValue(el, new WeakSet<object>(), 3, { n: 300 });
+      if (fromNode) return fromNode;
       let cur: Element | null = el;
       for (let depth = 0; depth < 30 && cur; depth++) {
+        const fromElementProps = findHlsInValue(cur, new WeakSet<object>(), 3, { n: 300 });
+        if (fromElementProps) return fromElementProps;
         let f = fiberOf(cur);
         for (let i = 0; i < 60 && f; i++) {
           const p = f.memoizedProps || f.stateNode?.props;
-          if (p)
-            for (const pk in p) {
-              if (isHls(p[pk])) return p[pk];
-            }
+          const fromProps = findHlsInValue(p, new WeakSet<object>(), 5, { n: 1200 });
+          if (fromProps) return fromProps;
           const s = f.memoizedState;
-          if (s && isHls(s.hls)) return s.hls;
+          const fromState = findHlsInValue(s, new WeakSet<object>(), 5, { n: 1200 });
+          if (fromState) return fromState;
           f = f.return ?? null;
         }
         cur = cur.parentElement;
@@ -155,9 +289,37 @@
     return null;
   }
   let hlsInst: HlsLike | null = null;
+  let nextHlsScanAt = 0;
+  let hlsScanDelay = 5000;
+  const HLS_SCAN_INITIAL_MS = 5000;
+  const HLS_SCAN_MAX_MS = 60000;
+  function resetHlsScanBackoff(): void {
+    nextHlsScanAt = 0;
+    hlsScanDelay = HLS_SCAN_INITIAL_MS;
+  }
+  function ensureHls(): HlsLike | null {
+    if (activeHls(hlsInst)) return hlsInst;
+    hlsInst = null;
+    const captured = sharedHls();
+    if (captured) {
+      resetHlsScanBackoff();
+      hlsInst = captured;
+      return hlsInst;
+    }
+    const now = Date.now();
+    if (now < nextHlsScanAt) return null;
+    hlsInst = findHls();
+    if (hlsInst) {
+      resetHlsScanBackoff();
+    } else {
+      nextHlsScanAt = now + hlsScanDelay;
+      hlsScanDelay = Math.min(hlsScanDelay * 2, HLS_SCAN_MAX_MS);
+    }
+    return hlsInst;
+  }
   function hlsLatency(): number | null {
     try {
-      if (!isHls(hlsInst)) hlsInst = findHls();
+      if (!activeHls(hlsInst)) hlsInst = ensureHls();
       const l = hlsInst ? hlsInst.latency : null;
       return typeof l === "number" && isFinite(l) && l > 0 ? l : null;
     } catch (e) {
@@ -166,18 +328,69 @@
   }
 
   function youtubePlayer(): YouTubePlayer | null {
+    if (!IS_YOUTUBE) return null;
     // Both the watch player (#movie_player) and the Shorts player (#shorts-player)
     // carry .html5-video-player. After an SPA navigation the previous one lingers
     // in the DOM but hidden (clientWidth/Height 0) — and still reports its old
     // video's getVideoData().isLive. Read only a VISIBLE player so a stale live
     // watch player can't make Shorts (or an inline preview) look like a stream.
     const players = document.querySelectorAll<HTMLElement>(".html5-video-player");
+    const locationHref =
+      typeof location.href === "string"
+        ? location.href
+        : `https://${HOSTNAME}${location.pathname || "/"}${location.search || ""}`;
+    const url = new URL(locationHref);
+    const pathId = /^\/(?:shorts|live|embed)\/([^/?#]+)/.exec(url.pathname)?.[1];
+    const currentId = url.searchParams.get("v") || pathId || null;
     let fallback: YouTubePlayer | null = null;
     for (const p of players) {
-      if (!fallback) fallback = p as YouTubePlayer;
-      if (p.clientWidth > 0 && p.clientHeight > 0) return p as YouTubePlayer;
+      if (p.clientWidth <= 0 || p.clientHeight <= 0) continue;
+      const player = p as YouTubePlayer;
+      if (!fallback || p.querySelector("video.html5-main-video")) fallback = player;
+      if (!currentId || typeof player.getVideoData !== "function") continue;
+      try {
+        const data = player.getVideoData();
+        if ((data?.video_id ?? data?.videoId) === currentId) return player;
+      } catch (e) {
+        /* use the visible main-player fallback */
+      }
     }
     return fallback;
+  }
+
+  function youtubeResponseLive(
+    yp: YouTubePlayer,
+    videoData: ReturnType<NonNullable<YouTubePlayer["getVideoData"]>>,
+  ): boolean | null {
+    let response: YouTubePlayerResponse | null = null;
+    let playerResponse = false;
+    try {
+      if (typeof yp.getPlayerResponse === "function") {
+        response = yp.getPlayerResponse();
+        playerResponse = !!response;
+      }
+    } catch (e) {
+      /* fall through to the page's current initial response */
+    }
+    if (!response) response = win.ytInitialPlayerResponse || null;
+    const details = response?.videoDetails;
+    if (!details) return null;
+
+    const playerId = videoData?.video_id ?? videoData?.videoId;
+    const responseId = details.videoId;
+    if (!playerResponse && (typeof playerId !== "string" || typeof responseId !== "string")) {
+      return null;
+    }
+    if (typeof playerId === "string" && typeof responseId === "string" && playerId !== responseId) {
+      return null;
+    }
+    const isLiveNow =
+      response?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.isLiveNow;
+    if (isLiveNow === true) return true;
+    if (isLiveNow === false) return false;
+    if (details.isLive === true || details.isLiveContent === true) return true;
+    if (details.isLive === false || details.isLiveContent === false) return false;
+    return null;
   }
 
   // The player's own live flag (getVideoData().isLive) — authoritative when
@@ -193,8 +406,9 @@
       if (yp.classList.contains("ad-showing") || yp.classList.contains("ad-interrupting"))
         return null;
       const vd = yp.getVideoData();
-      if (!vd || typeof vd.isLive !== "boolean") return null;
-      if (vd.isLive) return true;
+      const responseLive = youtubeResponseLive(yp, vd);
+      if (vd?.isLive === true || responseLive === true) return true;
+      if (vd?.isLive !== false && responseLive !== false) return null;
       const st = typeof yp.getPlayerState === "function" ? yp.getPlayerState() : null;
       return st === 1 || st === 2 || st === 3 ? false : null; // playing/paused/buffering
     } catch (e) {
@@ -249,22 +463,37 @@
     return null;
   }
 
+  let timer: number | null = null;
   function tick() {
+    if (!isActiveBridge()) {
+      if (timer != null) {
+        clearInterval(timer);
+        timer = null;
+      }
+      return;
+    }
     try {
       const tw = twitchLatency();
-      const lat = tw != null ? tw : (youtubeLatency() ?? hlsLatency());
+      const yt = tw == null ? youtubeLatency() : null;
+      const live = youtubeIsLive();
+      const lat = tw != null ? tw : (yt ?? (IS_YOUTUBE ? null : hlsLatency()));
       const root = document.documentElement;
       if (!root) return;
-      if (lat != null) root.setAttribute(ATTR, lat.toFixed(2));
-      else if (root.hasAttribute(ATTR)) root.removeAttribute(ATTR);
-      const live = youtubeIsLive();
-      if (live != null) root.setAttribute(LIVE_ATTR, live ? "1" : "0");
-      else if (root.hasAttribute(LIVE_ATTR)) root.removeAttribute(LIVE_ATTR);
+      setAttrIfChanged(root, ATTR, lat != null ? (Math.round(lat * 10) / 10).toFixed(1) : null);
+      setAttrIfChanged(root, LIVE_ATTR, live == null ? null : live ? "1" : "0");
     } catch (e) {
       /* ignore */
     }
   }
-
-  setInterval(tick, 1000);
+  timer = window.setInterval(tick, 1000);
+  win.__vtpLatencyBridgeCleanup = () => {
+    if (timer != null) {
+      clearInterval(timer);
+      timer = null;
+    }
+    if (win.__vtpLatencyBridgeInstalled === BRIDGE_VERSION) {
+      win.__vtpLatencyBridgeInstalled = undefined;
+    }
+  };
   tick();
 })();

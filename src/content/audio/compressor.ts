@@ -7,6 +7,8 @@ import { compOn } from "./translation.js";
 import {
   audioContext,
   audioGraphs,
+  graphForCurrentSource,
+  hasAudioGraphs,
   setupGraph,
   hookAudioGesture,
   resumeAudioCtx,
@@ -49,18 +51,26 @@ function applyGraphParams(g: AudioGraph): void {
   }
 }
 
-export function applyAudioComp(videos?: HTMLVideoElement[]): {
+export function applyAudioComp(
+  videos?: HTMLVideoElement[],
+  primary?: HTMLVideoElement | null,
+): {
   engaged: number;
   skipped: number;
   reason: string | null;
 } {
+  if (!S.audioCompEnabled && !S.autoSlowEnabled && !hasAudioGraphs()) {
+    return { engaged: 0, skipped: 0, reason: null };
+  }
   const list = videos || collectVideos();
-  const primary = primaryVideo();
+  const main = primary !== undefined ? primary : primaryVideo();
+  let streamPage: boolean | undefined;
   let engaged = 0,
     skipped = 0,
     reason: string | null = null;
   for (const v of list) {
-    let g: AudioGraph | null | undefined = audioGraphs.get(v);
+    let g: AudioGraph | null | undefined = graphForCurrentSource(v);
+    if (!g && !compOn()) g = audioGraphs.get(v);
     if (!g) {
       // Capture only what a live feature actually needs: compression routes every
       // video; auto-slow needs just the primary's analyser — and never on a live
@@ -68,13 +78,16 @@ export function applyAudioComp(videos?: HTMLVideoElement[]): {
       // needs it we capture nothing, rather than permanently holding the page's single
       // audio-capture slot (createMediaElementSource is one-shot, can't be released)
       // and blocking other audio extensions on every page.
+      if (S.autoSlowEnabled && v === main && streamPage === undefined) {
+        streamPage = onStreamPage();
+      }
       const need =
-        S.audioCompEnabled || (S.autoSlowEnabled && v === primary && !onStreamPage() && !isLive(v));
+        S.audioCompEnabled || (S.autoSlowEnabled && v === main && !streamPage && !isLive(v));
       if (!need) continue;
       g = setupGraph(v);
       if (!g) {
         skipped++;
-        const skip = lastSkip();
+        const skip = lastSkip(v);
         if (skip === "inuse") reason = "inuse";
         else if (!reason) reason = skip;
         continue;
@@ -85,7 +98,7 @@ export function applyAudioComp(videos?: HTMLVideoElement[]): {
   }
   // Always allow the context to resume on a user gesture, so metering works even
   // with compression off.
-  if (primary) {
+  if (main) {
     hookAudioGesture();
     resumeAudioCtx();
   }

@@ -2,7 +2,7 @@
 // lock and the editable presets; scope selection + saved dots + storage fallbacks
 // come from useScopeSelection. Talks to the content script via `send`, falling back
 // to storage on pages with no content script.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STORE } from "../platform/storage.js";
 import { clamp } from "../core/clamp.js";
 import {
@@ -24,6 +24,8 @@ const STORAGE: ScopeStorage = {
   siteMap: "domains",
   channelMap: "channels",
 };
+const sameArray = <T>(a: T[], b: T[]): boolean =>
+  a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 
 // `v` is the speed fraction; `animate` says whether the readout/slider should
 // glide to it (preset / ± / reset) or snap (drag / poll / load).
@@ -40,6 +42,8 @@ export interface UseSpeed {
   speedMax: number; // configurable upper bound for the slider (percent)
   speedStep: number; // per ± tap / keyboard step, as a fraction (e.g. 0.05)
   live: boolean;
+  drm: boolean;
+  viewerSupported: boolean;
   channel: string | null;
   channelName: string;
   scope: Scope;
@@ -50,7 +54,7 @@ export interface UseSpeed {
   nudge: (delta: number) => void;
   resetManual: () => void;
   resetScope: (target?: Scope) => void;
-  save: (target?: Scope) => void;
+  save: (target?: Scope) => void | boolean | Promise<void | boolean>;
   pickScope: (scope: Scope) => void;
   sliderInput: (percent: number) => void;
   sliderCommit: (percent: number) => void;
@@ -81,16 +85,23 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
   const [speedMax, setSpeedMax] = useState<number>(SPEED_MAX_DEFAULT);
   const [speedStep, setSpeedStep] = useState<number>(STEP_DEFAULT / 100);
   const [live, setLive] = useState(false);
+  const [drm, setDrm] = useState(false);
+  const [viewerSupported, setViewerSupported] = useState(true);
   // Synchronous mirror so back-to-back nudges / a save right after one see the
   // latest value (no re-render between them).
   const speedRef = useRef(1);
   const sliderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const userRevision = useRef(0);
 
   const isYouTube = /(^|\.)youtube(-nocookie)?\.com$/.test(domain);
 
   const apply = useCallback((v: number, animate: boolean) => {
     speedRef.current = v;
-    setSpeedState({ v, animate });
+    setSpeedState((prev) => (prev.v === v && prev.animate === animate ? prev : { v, animate }));
+  }, []);
+
+  const touchUserSpeed = useCallback(() => {
+    userRevision.current++;
   }, []);
 
   const applyResolved = useCallback(
@@ -102,8 +113,9 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
 
   // site > global > 100% (channel needs the page, absent here).
   const fallbackFromStorage = useCallback(
-    (animate = false) => {
+    (animate = false, expectedRevision?: number) => {
       STORE.get(["globalSpeed", STORAGE.siteMap], (r) => {
+        if (expectedRevision != null && userRevision.current !== expectedRevision) return;
         const sites = (r[STORAGE.siteMap] || {}) as Record<string, number>;
         const v = sites[domain] ?? (r.globalSpeed as number | undefined) ?? 1;
         apply(clamp(v), animate);
@@ -131,11 +143,13 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
 
   const setSpeed = useCallback(
     (fraction: number) => {
+      if (live) return;
       const clamped = clamp(fraction);
+      touchUserSpeed();
       apply(clamped, true);
       sendSpeed(clamped);
     },
-    [apply, sendSpeed],
+    [apply, live, sendSpeed, touchUserSpeed],
   );
 
   const nudge = useCallback(
@@ -144,6 +158,7 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
   );
 
   const resetManual = useCallback(() => {
+    if (live) return;
     if (!hasTab) {
       fallbackFromStorage(true);
       return;
@@ -152,21 +167,30 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
       if (r == null) fallbackFromStorage(true);
       else pullAfter<SpeedResponse>(send, "getSpeed", applyResolved);
     });
-  }, [hasTab, fallbackFromStorage, send, applyResolved]);
+  }, [hasTab, live, fallbackFromStorage, send, applyResolved]);
 
   // `target` defaults to the active scope, or the scope chosen from the menu.
   const resetScope = useCallback(
     (target: Scope = scope) => {
-      markSaved(target, false);
+      if (live) return;
       // Channel has no off-page fallback (it needs the DOM) — revert to 1× instead.
-      const fallback = () =>
-        target === "channel" ? setSpeed(1) : resetFallback(target, () => fallbackFromStorage(true));
+      const fallback = () => {
+        if (target === "channel") {
+          refreshSaved();
+          return;
+        }
+        resetFallback(target, (ok) => {
+          if (ok !== false) markSaved(target, false);
+          fallbackFromStorage(true);
+        });
+      };
       if (!hasTab) {
         fallback();
         return;
       }
       void send("reset", { scope: target }).then((r) => {
         if (r == null) fallback();
+        else if ((r as { success?: boolean }).success === false) refreshSaved();
         // After clearing `target`, re-resolve: the value drops to the next scope
         // (channel > site > global > 100%) and the Save button retargets to it.
         else
@@ -179,11 +203,11 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
     },
     [
       scope,
+      live,
       hasTab,
       markSaved,
       resetFallback,
       fallbackFromStorage,
-      setSpeed,
       send,
       applyResolved,
       defaultScope,
@@ -193,35 +217,61 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
 
   const save = useCallback(
     (target: Scope = scope) => {
+      if (live) return false;
       const v = clamp(speedRef.current);
-      if (hasTab) {
-        void send("remember", { scope: target, speed: v }).then((r) => {
-          if (r == null) saveFallback(target, v);
+      const fallback = () =>
+        new Promise<boolean>((resolve) => {
+          if (target === "channel") {
+            refreshSaved();
+            resolve(false);
+            return;
+          }
+          saveFallback(target, v, (ok) => {
+            if (ok === false) {
+              refreshSaved();
+              resolve(false);
+              return;
+            }
+            markSaved(target, true, v);
+            resolve(true);
+          });
         });
-      } else {
-        saveFallback(target, v);
+      if (hasTab) {
+        return send<{ success?: boolean }>("remember", { scope: target, speed: v }).then((r) => {
+          if (r == null) return fallback();
+          if (r.success === false) {
+            refreshSaved();
+            return false;
+          }
+          markSaved(target, true, v);
+          return true;
+        });
       }
-      markSaved(target, true, v);
+      return fallback();
     },
-    [scope, hasTab, send, saveFallback, markSaved],
+    [scope, live, hasTab, send, saveFallback, markSaved, refreshSaved],
   );
 
   const sliderInput = useCallback(
     (percent: number) => {
+      if (live) return;
       const clamped = clamp(percent / 100);
+      touchUserSpeed();
       apply(clamped, false);
       clearTimeout(sliderTimer.current);
       sliderTimer.current = setTimeout(() => sendSpeed(clamped), 160);
     },
-    [apply, sendSpeed],
+    [apply, live, sendSpeed, touchUserSpeed],
   );
 
   const sliderCommit = useCallback(
     (percent: number) => {
+      if (live) return;
       clearTimeout(sliderTimer.current);
+      touchUserSpeed();
       sendSpeed(clamp(percent / 100));
     },
-    [sendSpeed],
+    [live, sendSpeed, touchUserSpeed],
   );
 
   // Editable presets + slider bounds come from storage; stay subscribed so edits
@@ -229,50 +279,62 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
   // without a reopen. Not tab-gated — they don't depend on the page.
   useStored(["speedPresets", "presetKeys", "presetPins", "speedMax", "speedStep"], (r) => {
     const set = normalizePresetSet(r.speedPresets, r.presetKeys, r.presetPins);
-    setPresets(set.presets);
-    setPresetKeys(set.keys);
-    setPinned(set.pinned);
-    setSpeedMax(normalizeSpeedMax(r.speedMax));
-    setSpeedStep(normalizeSpeedStep(r.speedStep) / 100);
+    setPresets((prev) => (sameArray(prev, set.presets) ? prev : set.presets));
+    setPresetKeys((prev) => (sameArray(prev, set.keys) ? prev : set.keys));
+    setPinned((prev) => (sameArray(prev, set.pinned) ? prev : set.pinned));
+    const nextMax = normalizeSpeedMax(r.speedMax);
+    const nextStep = normalizeSpeedStep(r.speedStep) / 100;
+    setSpeedMax((prev) => (prev === nextMax ? prev : nextMax));
+    setSpeedStep((prev) => (prev === nextStep ? prev : nextStep));
   });
 
   // Initial load: the page's resolved speed (or storage fallback).
   useEffect(() => {
     if (!tab) return;
     let resolved = false;
+    let canceled = false;
+    const initialRevision = userRevision.current;
     if (hasTab) {
       void send<SpeedResponse>("getSpeed").then((resp) => {
+        if (canceled) return;
         if (resp && typeof resp.speed === "number") {
           resolved = true;
-          apply(resp.speed, false);
+          if (userRevision.current === initialRevision) apply(resp.speed, false);
           setLive(!!resp.live);
-          applyChannel(resp.channel, resp.channelName);
+          setDrm(!!resp.drm);
+          setViewerSupported(resp.viewerSupported !== false);
+          applyChannel(resp.channel, resp.channelName, resp.channelKeys);
           defaultScope(resp.scope, !!resp.channel);
           refreshSaved();
         } else {
-          fallbackFromStorage();
+          fallbackFromStorage(false, initialRevision);
           defaultScope(null, false);
           refreshSaved();
         }
       });
     } else {
-      fallbackFromStorage();
+      fallbackFromStorage(false, initialRevision);
       refreshSaved();
     }
     const t = setTimeout(() => {
-      if (!resolved) fallbackFromStorage();
+      if (!resolved) fallbackFromStorage(false, initialRevision);
     }, 400);
-    return () => clearTimeout(t);
+    return () => {
+      canceled = true;
+      clearTimeout(t);
+    };
   }, [tab, hasTab, send, apply, fallbackFromStorage, applyChannel, defaultScope, refreshSaved]);
 
   // Poll while open so live-sync speed changes show in the readout.
   const missesRef = useRef(0);
   useEffect(() => {
-    if (!hasTab) return;
+    if (!hasTab || !live) return;
     const id = setInterval(() => {
       void send<SpeedResponse>("getSpeed").then((resp) => {
         if (!resp) return;
-        applyChannel(resp.channel, resp.channelName);
+        applyChannel(resp.channel, resp.channelName, resp.channelKeys);
+        setDrm(!!resp.drm);
+        setViewerSupported(resp.viewerSupported !== false);
         if (resp.live) {
           missesRef.current = 0;
           setLive(true);
@@ -282,30 +344,83 @@ export function useSpeed(tab: ActiveTab | null, send: SendToTab): UseSpeed {
         }
       });
     }, 1000);
-    return () => clearInterval(id);
-  }, [hasTab, send, applyChannel, apply]);
+    return () => {
+      clearInterval(id);
+      missesRef.current = 0;
+    };
+  }, [hasTab, live, send, applyChannel, apply]);
 
-  return {
-    speed,
-    presets,
-    presetKeys,
-    pinned,
-    speedMax,
-    speedStep,
-    live,
-    channel: sc.channel,
-    channelName: sc.channelName,
-    scope,
-    saved: sc.saved,
-    savedValues: sc.savedValues,
-    isYouTube,
-    setSpeed,
-    nudge,
-    resetManual,
-    resetScope,
-    save,
-    pickScope: sc.pickScope,
-    sliderInput,
-    sliderCommit,
-  };
+  useEffect(() => {
+    if (!hasTab || live) return;
+    const id = setInterval(() => {
+      void send<SpeedResponse>("getSpeed").then((resp) => {
+        if (!resp) return;
+        applyChannel(resp.channel, resp.channelName, resp.channelKeys);
+        setDrm(!!resp.drm);
+        setViewerSupported(resp.viewerSupported !== false);
+        if (resp.live) {
+          missesRef.current = 0;
+          setLive(true);
+          if (typeof resp.speed === "number") apply(resp.speed, false);
+        }
+      });
+    }, 1500);
+    return () => {
+      clearInterval(id);
+      missesRef.current = 0;
+    };
+  }, [hasTab, live, send, applyChannel, apply]);
+
+  return useMemo(
+    () => ({
+      speed,
+      presets,
+      presetKeys,
+      pinned,
+      speedMax,
+      speedStep,
+      live,
+      drm,
+      viewerSupported,
+      channel: sc.channel,
+      channelName: sc.channelName,
+      scope,
+      saved: sc.saved,
+      savedValues: sc.savedValues,
+      isYouTube,
+      setSpeed,
+      nudge,
+      resetManual,
+      resetScope,
+      save,
+      pickScope: sc.pickScope,
+      sliderInput,
+      sliderCommit,
+    }),
+    [
+      speed,
+      presets,
+      presetKeys,
+      pinned,
+      speedMax,
+      speedStep,
+      live,
+      drm,
+      viewerSupported,
+      sc.channel,
+      sc.channelName,
+      scope,
+      sc.saved,
+      sc.savedValues,
+      isYouTube,
+      setSpeed,
+      nudge,
+      resetManual,
+      resetScope,
+      save,
+      sc.pickScope,
+      sliderInput,
+      sliderCommit,
+    ],
+  );
 }

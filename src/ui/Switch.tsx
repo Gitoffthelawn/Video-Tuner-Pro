@@ -41,6 +41,7 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
   const suppressClick = useRef(false); // a drag-release already toggled; swallow the synthesized click
   const prevChecked = useRef(checked);
   const settleTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const suppressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const setRatio = (v: number) => {
     ratioRef.current = v;
@@ -61,7 +62,13 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
     settleTimer.current = setTimeout(() => setActive(false), SETTLE_MS);
   }, [checked]);
 
-  useEffect(() => () => clearTimeout(settleTimer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(settleTimer.current);
+      clearTimeout(suppressTimer.current);
+    },
+    [],
+  );
 
   const ratioFromClientX = (clientX: number): number => {
     const raw = startRatio.current + (clientX - startX.current) / TRAVEL;
@@ -88,14 +95,20 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
     setRatio(ratioFromClientX(e.clientX));
   };
 
-  const endDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const endDrag = (e: React.PointerEvent<HTMLButtonElement>, commit = true) => {
     if (!dragging.current) return;
     dragging.current = false;
-    if (e.pointerId != null) trackRef.current?.releasePointerCapture?.(e.pointerId);
+    if (e.pointerId != null && trackRef.current?.hasPointerCapture?.(e.pointerId)) {
+      trackRef.current.releasePointerCapture(e.pointerId);
+    }
     setActive(false);
-    if (moved.current) {
+    if (commit && moved.current) {
       const shouldBeChecked = ratioRef.current > 0.5;
       suppressClick.current = true; // the browser still synthesizes a click after pointerup
+      clearTimeout(suppressTimer.current);
+      suppressTimer.current = setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
       prevChecked.current = shouldBeChecked;
       setRatio(shouldBeChecked ? 1 : 0);
       if (shouldBeChecked !== checked) onChange(shouldBeChecked);
@@ -103,10 +116,20 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
       setRatio(checked ? 1 : 0); // snap back — the click handler below does the actual toggle
     }
   };
+  const cancelDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+    suppressClick.current = false;
+    clearTimeout(suppressTimer.current);
+    endDrag(e, false);
+  };
+  const onLostPointerCapture = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragging.current) return;
+    endDrag(e, false);
+  };
 
   const onClick = () => {
     if (suppressClick.current) {
       suppressClick.current = false;
+      clearTimeout(suppressTimer.current);
       return;
     }
     onChange(!checked);
@@ -123,10 +146,12 @@ export function Switch({ checked, onChange, disabled, id, ariaLabel }: Props) {
       disabled={disabled}
       data-state={checked ? "checked" : "unchecked"}
       className="switch switch-track"
+      style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerCancel={cancelDrag}
+      onLostPointerCapture={onLostPointerCapture}
       onClick={onClick}
     >
       <span

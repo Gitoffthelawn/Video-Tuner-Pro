@@ -110,7 +110,7 @@ function normalizeOneKey(raw: unknown): string | null {
 // Coerce the stored presets + their keys + pins into lockstep (value, key, pin)
 // entries, sorted by value so each key/pin stays attached to its speed. Duplicate
 // keys are dropped to null (keeping the lower-valued preset's), and no more than
-// QUICK_COUNT presets stay pinned (lowest values win). Missing keys fall back to
+// QUICK_MAX presets stay pinned (lowest values win). Missing keys fall back to
 // DEFAULT_PRESET_KEYS so upgrading users keep ⇧1…⇧9.
 export function normalizePresetSet(
   rawPresets: unknown,
@@ -161,9 +161,4 @@ export function quickPresetIndices(pinned: boolean[]): number[] {
   const count = Math.min(QUICK_MAX, Math.max(QUICK_COUNT, pinnedIdx.length));
   const pick = pinnedIdx.concat(all.filter((i) => !pinned[i]));
   return pick.slice(0, count).sort((a, b) => a - b);
-}
-
-// As playback-rate fractions (e.g. 1.5), for the content script.
-export function presetFractions(raw: unknown): number[] {
-  return normalizePresets(raw).map((p) => p / 100);
 }

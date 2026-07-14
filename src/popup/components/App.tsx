@@ -5,6 +5,8 @@ import { useActiveTab, useTabMessaging } from "../hooks/tab.js";
 import { useSpeed } from "../hooks/useSpeed.js";
 import { useLiveSync } from "../hooks/useLiveSync.js";
 import { useAutoSlow } from "../hooks/useAutoSlow.js";
+import { useViewerAuto } from "../hooks/useViewerAuto.js";
+import { useViewerFit } from "../hooks/useViewerFit.js";
 import { useAudioCompressor } from "../hooks/useAudioCompressor.js";
 import { useGraphs } from "../hooks/useGraphs.js";
 import { useStored } from "../hooks/useStored.js";
@@ -21,6 +23,7 @@ import {
 import { Header } from "./Header.js";
 import { SpeedCard } from "./SpeedCard.js";
 import { LiveSyncCard } from "./LiveSyncCard.js";
+import { ViewerAutoControl } from "./ViewerAutoControl.js";
 import { AutoSlowCard } from "./AutoSlowCard.js";
 import { AudioCard } from "./AudioCard.js";
 import { GuideTour } from "./GuideTour.js";
@@ -31,6 +34,8 @@ export function App() {
   const speed = useSpeed(tab, send);
   const sync = useLiveSync(tab, send);
   const autoSlow = useAutoSlow(tab, send);
+  const viewerAuto = useViewerAuto(tab, send, speed.live);
+  const viewerFit = useViewerFit(tab, send);
   const audio = useAudioCompressor();
   const [translating, setTranslating] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState<string | null>(null);
@@ -55,7 +60,7 @@ export function App() {
   const [tourCard, setTourCard] = useState<number | null>(null);
   const onExpand = useCallback((card: number | null) => setTourCard(card), []);
   // Drive each card open/closed from the tour; undefined hands control back to the
-  // user once the tour is gone. Slot order is Speed, Live-sync, Auto-slow, Audio.
+  // user once the tour is gone. Slot order is Speed, Live-sync, Viewer, Auto-slow, Audio.
   const forceOpen = (n: number): boolean | undefined => (showTour ? tourCard === n : undefined);
 
   // While the tour is up, present every card unlocked regardless of the page —
@@ -72,7 +77,9 @@ export function App() {
       ? msg("audioBlockCors")
       : audioBlk === "noctx"
         ? msg("audioBlockNoctx")
-        : msg("audioBlockInuse");
+        : audioBlk === "suspended"
+          ? msg("audioBlockSuspended")
+          : msg("audioBlockInuse");
 
   return (
     <>
@@ -89,6 +96,19 @@ export function App() {
           forceOpen={forceOpen(0)}
         />
         <LiveSyncCard sync={sync} live={syncLive} forceOpen={forceOpen(1)} />
+        <ViewerAutoControl
+          viewerAuto={viewerAuto}
+          viewerFit={viewerFit}
+          forceOpen={forceOpen(2)}
+          blocked={speed.drm || !speed.viewerSupported}
+          blockedMessage={
+            speed.drm
+              ? msg("viewerDrmBlocked")
+              : !speed.viewerSupported
+                ? msg("viewerFrameBlocked")
+                : undefined
+          }
+        />
 
         <div className={"group-label" + (audioBlk ? " has-warn" : "")}>
           <span>{msg("groupAudio") || "Audio"}</span>
@@ -127,13 +147,13 @@ export function App() {
           autoSlow={autoSlow}
           live={speedLive}
           blocked={!!audioBlk}
-          forceOpen={forceOpen(2)}
+          forceOpen={forceOpen(3)}
         />
         <AudioCard
           audio={audio}
           translating={audioTranslating}
           blocked={!!audioBlk}
-          forceOpen={forceOpen(3)}
+          forceOpen={forceOpen(4)}
         />
       </div>
       {showTour && <GuideTour onClose={closeTour} onExpand={onExpand} />}

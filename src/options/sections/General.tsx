@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { STORE } from "../../shared/store.js";
 import { THEMES, type Theme, setTheme } from "../../shared/theme.js";
 import { LOCALES, LOCALE_NAMES, getLang, setLang, type Lang } from "../../shared/i18n-config.js";
-import { SYNC_META_KEY } from "../../shared/sync-config.js";
+import { SYNC_MASTER_KEY, SYNC_META_KEY } from "../../shared/sync-config.js";
 import { msg } from "../../popup/i18n.js";
 import { Group } from "../Group.js";
 import { Button } from "../../ui/Button.js";
 import { Segmented } from "../../ui/Segmented.js";
 import { Slider } from "../../ui/Slider.js";
+import { Switch } from "../../ui/Switch.js";
 import {
   applyGlassOpacity,
   clampGlassOpacity,
@@ -26,6 +27,15 @@ const THEME_LABEL: Record<Theme, string> = {
   dark: "themeDark",
 };
 const FILE = "video-tuner-pro-settings.json";
+
+function hasPresetArrayMismatch(data: Record<string, unknown>): boolean {
+  const presets = data.speedPresets;
+  if (!Array.isArray(presets)) return false;
+  return (
+    (Array.isArray(data.presetKeys) && data.presetKeys.length !== presets.length) ||
+    (Array.isArray(data.presetPins) && data.presetPins.length !== presets.length)
+  );
+}
 
 function ThemeSeg() {
   const [theme, setThemeState] = useState<Theme>("system");
@@ -74,6 +84,55 @@ function OverlayBtnSeg() {
       items={OVERLAY_MODES.map((m) => ({ value: m, label: msg(OVERLAY_LABEL[m]) || m }))}
       value={mode}
       onChange={pick}
+    />
+  );
+}
+
+type ViewerAuto = "off" | "normal" | "theater";
+const VIEWER_AUTO_MODES: ViewerAuto[] = ["off", "normal", "theater"];
+const VIEWER_AUTO_LABEL: Record<ViewerAuto, string> = {
+  off: "overlayBtnOff",
+  normal: "viewerAutoNormal",
+  theater: "viewerAutoTheater",
+};
+
+function ViewerAutoSeg() {
+  const [mode, setMode] = useState<ViewerAuto>("off");
+  useEffect(() => {
+    STORE.get(["viewerAutoGlobal", "viewerAuto"], (r) => {
+      const v = r.viewerAutoGlobal ?? r.viewerAuto;
+      setMode(v === "normal" || v === "theater" ? v : "off");
+    });
+  }, []);
+  const pick = (m: ViewerAuto) => {
+    setMode(m);
+    STORE.set({ viewerAutoGlobal: m });
+  };
+  return (
+    <Segmented
+      id="viewerAutoSeg"
+      ariaLabel={msg("optViewerAutoLabel") || "Auto pop-out on play"}
+      items={VIEWER_AUTO_MODES.map((m) => ({ value: m, label: msg(VIEWER_AUTO_LABEL[m]) || m }))}
+      value={mode}
+      onChange={pick}
+    />
+  );
+}
+
+function SponsorSwitch() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    STORE.get(["sponsorMarks"], (r) => setOn(r.sponsorMarks === true));
+  }, []);
+  const toggle = (v: boolean) => {
+    setOn(v);
+    STORE.set({ sponsorMarks: v });
+  };
+  return (
+    <Switch
+      checked={on}
+      onChange={toggle}
+      ariaLabel={msg("optSponsorLabel") || "SponsorBlock markers"}
     />
   );
 }
@@ -146,6 +205,7 @@ export function Backup() {
     STORE.get(null, (all) => {
       const data: Record<string, unknown> = { ...all };
       delete data[SYNC_META_KEY];
+      delete data[SYNC_MASTER_KEY];
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -173,9 +233,40 @@ export function Backup() {
       }
       const data = { ...(parsed as Record<string, unknown>) };
       delete data[SYNC_META_KEY]; // never import another device's sync choices
-      STORE.set(data, () => {
-        flash(setImp, "optImportDone", true);
-        setTimeout(() => location.reload(), 1000);
+      delete data[SYNC_MASTER_KEY];
+      if (hasPresetArrayMismatch(data)) {
+        flash(setImp, "optImportError", false);
+        return;
+      }
+      STORE.get(null, (current) => {
+        const stale = Object.keys(current).filter(
+          (key) => key !== SYNC_META_KEY && key !== SYNC_MASTER_KEY && !(key in data),
+        );
+        const done = () => {
+          flash(setImp, "optImportDone", true);
+          setTimeout(() => location.reload(), 1000);
+        };
+        const removeStale = () => {
+          if (!stale.length) {
+            done();
+            return;
+          }
+          const removeEverywhere = STORE.removeEverywhere?.bind(STORE) ?? STORE.remove.bind(STORE);
+          removeEverywhere(stale, (ok) => {
+            if (ok === false) {
+              flash(setImp, "optImportError", false);
+              return;
+            }
+            done();
+          });
+        };
+        STORE.set(data, (ok) => {
+          if (ok === false) {
+            flash(setImp, "optImportError", false);
+            return;
+          }
+          removeStale();
+        });
       });
     };
     reader.readAsText(file);
@@ -236,6 +327,24 @@ export function General() {
           <span className="opt-field-desc">{msg("overlayBtnHint")}</span>
         </span>
         <OverlayBtnSeg />
+      </div>
+      <div className="opt-field opt-field-block">
+        <span className="opt-field-text">
+          <span className="opt-field-label">
+            {msg("optViewerAutoLabel") || "Auto pop-out on play"}
+          </span>
+          <span className="opt-field-desc">{msg("optViewerAutoHint")}</span>
+        </span>
+        <ViewerAutoSeg />
+      </div>
+      <div className="opt-field">
+        <span className="opt-field-text">
+          <span className="opt-field-label">
+            {msg("optSponsorLabel") || "SponsorBlock markers"}
+          </span>
+          <span className="opt-field-desc">{msg("optSponsorHint")}</span>
+        </span>
+        <SponsorSwitch />
       </div>
     </Group>
   );

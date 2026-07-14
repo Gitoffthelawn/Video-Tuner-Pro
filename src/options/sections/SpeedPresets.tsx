@@ -5,7 +5,7 @@
 // "speedPresets" / "presetKeys" / "presetPins" (lockstep arrays) and "speedMax" /
 // "speedStep" / "holdSpeed"; the popup + content script read them.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STORE } from "../../shared/store.js";
+import { STORE, subscribe } from "../../shared/store.js";
 import { msg } from "../../popup/i18n.js";
 import { Group } from "../Group.js";
 import { StoredToggle } from "../../popup/components/StoredToggle.js";
@@ -39,6 +39,7 @@ import {
   eventChord,
   chordLabel,
   ACTIONS,
+  actionConflictsWithChord,
   type Keymap,
 } from "../../shared/keymap.js";
 
@@ -106,6 +107,16 @@ export function SpeedPresets() {
     );
   }, []);
 
+  useEffect(
+    () =>
+      subscribe(["keymap"], () =>
+        STORE.get(["keymap"], (r) => {
+          keymapRef.current = normalizeKeymap(r.keymap);
+        }),
+      ),
+    [],
+  );
+
   // Capture a key for the active preset row. Esc cancels; Backspace/Delete clears
   // the binding; a chord that duplicates another preset or shadows an action key
   // (same position, no Ctrl/Alt) is rejected with a flash.
@@ -131,8 +142,7 @@ export function SpeedPresets() {
       const spec = formatChord(chord);
       const dupePreset = rowsRef.current.some((r, j) => j !== i && r.key === spec);
       const km = keymapRef.current;
-      const shadowsAction =
-        !chord.mod && !chord.alt && !!km && ACTIONS.some((a) => km[a] === chord.code);
+      const shadowsAction = !!km && ACTIONS.some((a) => actionConflictsWithChord(a, km[a], chord));
       if (dupePreset || shadowsAction) return reject(i);
       setKey(spec);
     };
@@ -147,6 +157,11 @@ export function SpeedPresets() {
 
   const pinnedCount = rows.filter((r) => r.pin).length;
 
+  const previewMax = (raw: number) => {
+    const next = normalizeSpeedMax(raw);
+    setSpeedMax(next);
+    setHoldSpeed((h) => Math.min(h, next));
+  };
   const setMax = (raw: number) => {
     const next = normalizeSpeedMax(raw);
     setSpeedMax(next);
@@ -157,12 +172,14 @@ export function SpeedPresets() {
     STORE.set({ speedMax: next, holdSpeed: hold });
   };
 
+  const previewStep = (raw: number) => setSpeedStep(normalizeSpeedStep(raw));
   const setStep = (raw: number) => {
     const v = normalizeSpeedStep(raw);
     setSpeedStep(v);
     STORE.set({ speedStep: v });
   };
 
+  const previewHold = (raw: number) => setHoldSpeed(Math.min(speedMax, normalizeHoldSpeed(raw)));
   const setHold = (raw: number) => {
     const v = Math.min(speedMax, normalizeHoldSpeed(raw));
     setHoldSpeed(v);
@@ -225,7 +242,8 @@ export function SpeedPresets() {
             step={SPEED_MAX_STEP}
             value={speedMax}
             ariaLabel={msg("optMaxSpeed") || "Maximum speed"}
-            onChange={setMax}
+            onChange={previewMax}
+            onCommit={setMax}
           />
         </div>
 
@@ -241,7 +259,8 @@ export function SpeedPresets() {
             step={1}
             value={speedStep}
             ariaLabel={msg("optStepLabel") || "Speed step"}
-            onChange={setStep}
+            onChange={previewStep}
+            onCommit={setStep}
           />
         </div>
 
@@ -257,7 +276,8 @@ export function SpeedPresets() {
             step={5}
             value={holdSpeed}
             ariaLabel={msg("optHoldSpeed") || "Hold speed"}
-            onChange={setHold}
+            onChange={previewHold}
+            onCommit={setHold}
           />
         </div>
 

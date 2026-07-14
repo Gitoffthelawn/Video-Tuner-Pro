@@ -1,6 +1,6 @@
 {
   "name": "video-tuner-pro",
-  "version": "3.0.8",
+  "version": "3.1.0",
   "description": "Build tooling for the Video Tuner Pro browser extension",
   "license": "GPL-3.0-only",
   "private": true,
@@ -14,23 +14,25 @@
     "check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\"",
+    "format": "prettier --write \".github/**/*.yml\" \".storybook/**/*.{ts,tsx}\" \"e2e/**/*.{ts,mjs,html}\" \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\" \"tools/**/*.mjs\" \"*.{js,mjs,json,ts}\"",
+    "format:check": "prettier --check \".github/**/*.yml\" \".storybook/**/*.{ts,tsx}\" \"e2e/**/*.{ts,mjs,html}\" \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\" \"tools/**/*.mjs\" \"*.{js,mjs,json,ts}\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "node tools/bench-dom.mjs",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build && playwright test",
+    "test:real-chrome": "npm run build && REAL_CHROME=1 playwright test e2e/real-chrome-quality.spec.ts",
     "screenshot": "node tools/screenshot.mjs",
     "promo": "node tools/promo.mjs",
     "promo:gif": "node tools/promo-gif.mjs",
+    "promo:verify": "node tools/verify-promo.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.61.0",
-    "@storybook/react-vite": "^9.1.20",
+    "@storybook/react-vite": "^10.5.0",
     "@types/chrome": "^0.1.43",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -45,15 +47,24 @@
     "jsdom": "^29.1.1",
     "lightningcss": "^1.32.0",
     "prettier": "^3.8.4",
-    "storybook": "^9.1.20",
+    "storybook": "^10.5.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
     "vite": "^7.3.5",
-    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.9"
   },
   "dependencies": {
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "overrides": {
+    "vite": {
+      "esbuild": "0.28.1"
+    }
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.2": true,
+    "fsevents@2.3.3": true
   }
 }

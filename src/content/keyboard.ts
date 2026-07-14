@@ -2,7 +2,7 @@
 // Bare single keys by physical position (e.code, so they hold across layouts).
 // The action keys default to A (decrease), D (increase) by S.speedStep (Shift
 // doubles it), R (drop the manual change and re-take the saved speed by priority:
-// channel > site > global > 100%), S (toggle the last speed ⇄ 1×) and F (hold for
+// channel > site > global > 100%), S (toggle the last speed ⇄ 1×) and X (hold for
 // S.holdSpeed while pressed). All are remappable on the options page (S.keymap).
 // Each editable preset can carry its own hotkey chord (S.presetKeys, e.g. ⇧1 by
 // default); pressing it jumps to that preset speed. Preset chords may use
@@ -13,11 +13,29 @@
 // through setSpeed's `manual` flag, so a live stream at the live edge safely
 // ignores them.
 import { S } from "./state.js";
-import { eventMatchesSpec } from "../shared/keymap.js";
+import { eventMatchesChord, parseChord, type KeyChord } from "../shared/keymap.js";
 import { setSpeed, resetToSaved } from "./speed.js";
 import { ctxValid } from "./platform/browser.js";
 import { primaryVideo } from "./videos.js";
 import { toggleOverlayPopup } from "./overlay/launcher.js";
+import { toggleViewer, viewerAnchorVideo, viewerFormat } from "./viewer.js";
+import { listenerOptions } from "./lifecycle.js";
+
+let cachedPresetKeys: (string | null)[] | null = null;
+let cachedPresetChords: (KeyChord | null)[] = [];
+
+function presetChords(): (KeyChord | null)[] {
+  if (
+    cachedPresetKeys &&
+    cachedPresetKeys.length === S.presetKeys.length &&
+    cachedPresetKeys.every((key, i) => key === S.presetKeys[i])
+  ) {
+    return cachedPresetChords;
+  }
+  cachedPresetKeys = [...S.presetKeys];
+  cachedPresetChords = S.presetKeys.map((key) => parseChord(key));
+  return cachedPresetChords;
+}
 
 // The focused element, piercing open shadow roots — some sites host inputs there.
 function deepActive(): Element | null {
@@ -39,41 +57,73 @@ function typingIn(el: EventTarget | null): boolean {
 document.addEventListener(
   "keydown",
   (e) => {
+    if (e.defaultPrevented) return;
     if (!S.keyboardEnabled || !ctxValid()) return;
-    const { slower, faster, reset, toggle, hold, overlay } = S.keymap;
+    const { slower, faster, reset, toggle, hold, overlay, viewer, theater } = S.keymap;
+    const oneShotRepeat =
+      e.repeat &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      (e.code === reset ||
+        e.code === toggle ||
+        e.code === overlay ||
+        e.code === viewer ||
+        e.code === theater);
+    if (oneShotRepeat) return;
     // A preset whose assigned chord matches this exact event (may use modifiers).
     let preset: number | undefined;
-    for (let i = 0; i < S.presetKeys.length; i++) {
-      if (eventMatchesSpec(S.presetKeys[i], e)) {
+    const chords = presetChords();
+    for (let i = 0; i < chords.length; i++) {
+      if (eventMatchesChord(chords[i], e)) {
         preset = S.presets[i];
         break;
       }
     }
     // Action keys are bare position keys (Shift only, to double the step) — never
     // with Ctrl/Cmd/Alt, so browser/site chords are left alone.
-    const actionKey =
+    const speedStepKey =
+      !e.ctrlKey && !e.metaKey && !e.altKey && (e.code === slower || e.code === faster);
+    const plainActionKey =
       !e.ctrlKey &&
       !e.metaKey &&
       !e.altKey &&
-      (e.code === slower ||
-        e.code === faster ||
-        e.code === reset ||
+      !e.shiftKey &&
+      (e.code === reset ||
         e.code === toggle ||
         e.code === hold ||
-        e.code === overlay);
+        e.code === overlay ||
+        e.code === viewer ||
+        e.code === theater);
+    const actionKey = !e.ctrlKey && !e.metaKey && !e.altKey && (speedStepKey || plainActionKey);
     if (preset === undefined && !actionKey) return;
     // composedPath()[0] pierces shadow DOM to the real target; deepActive() does the same for focus.
     const target = (typeof e.composedPath === "function" && e.composedPath()[0]) || e.target;
     if (typingIn(target) || typingIn(deepActive())) return;
-    if (!primaryVideo()) return; // nothing to act on — leave the key to the page
+    const viewerAction = e.code === viewer || e.code === theater;
+    if (viewerAction && !S.viewerAutoEnabled) return;
+    // A viewer rendered in a child frame would be clipped to that frame and its
+    // controls misleadingly appear to cover the host page. Leave the site's key
+    // untouched there; embedded players can still use native Picture-in-Picture.
+    if (viewerAction && window.top !== window) return;
+    if (!primaryVideo() && !viewerAnchorVideo() && !(viewerAction && viewerFormat())) return; // nothing to act on
 
     e.preventDefault();
+    if (preset !== undefined) {
+      if (!e.repeat) setSpeed(preset, false, true);
+      return;
+    }
     if (e.code === overlay) {
       toggleOverlayPopup();
       return;
     }
-    if (preset !== undefined) {
-      setSpeed(preset, false, true);
+    if (e.code === viewer) {
+      toggleViewer("normal");
+      return;
+    }
+    if (e.code === theater) {
+      toggleViewer("theater");
       return;
     }
     if (e.code === hold) {
@@ -100,8 +150,20 @@ document.addEventListener(
     else if (e.code === slower) setSpeed(S.currentSpeed - step, false, true);
     else if (e.code === reset) resetToSaved();
   },
-  true,
+  listenerOptions(true),
 );
+
+function releaseHold(): void {
+  if (!S.holdActive) return;
+  S.holdActive = false;
+  setSpeed(S.holdPrev, false, true);
+}
+
+function releaseHoldOnWindowBlur(): void {
+  setTimeout(() => {
+    if (!document.hasFocus() || document.activeElement instanceof HTMLIFrameElement) releaseHold();
+  }, 0);
+}
 
 // Releasing the hold key restores the speed it interrupted. Listens regardless
 // of the typing guard so a release over a focused field still cleans up.
@@ -109,8 +171,16 @@ document.addEventListener(
   "keyup",
   (e) => {
     if (!S.holdActive || e.code !== S.keymap.hold) return;
-    S.holdActive = false;
-    setSpeed(S.holdPrev, false, true);
+    releaseHold();
   },
-  true,
+  listenerOptions(true),
+);
+
+window.addEventListener("blur", releaseHoldOnWindowBlur, listenerOptions(true));
+document.addEventListener(
+  "visibilitychange",
+  () => {
+    if (document.hidden) releaseHold();
+  },
+  listenerOptions(true),
 );

@@ -1,8 +1,7 @@
 // Drives the real options page (chrome-extension://…/options/options.html) the way
 // a user would — clicking every control — and asserts the resulting chrome.storage
 // writes (and, where it propagates live, the effect on a video tab). Playwright is
-// the browser driver, so it can click extension pages that a sibling extension (and
-// hence the Claude-in-Chrome MCP) cannot.
+// the browser driver, so it can click extension pages that another extension cannot.
 import {
   test,
   expect,
@@ -48,6 +47,37 @@ test.describe("Options · General", () => {
     await expect
       .poll(async () => (await readStored(serviceWorker, "overlayButton")).overlayButton)
       .toBe("off");
+  });
+
+  test("viewer auto-open default and SponsorBlock markers persist", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    const page = await openExtensionPage(context, extensionId, OPTIONS);
+    await page.locator("#viewerAutoSeg [role=radio]").nth(2).click(); // theater
+    const sponsor = page.getByRole("switch", { name: /SponsorBlock/i });
+    await sponsor.click();
+
+    await expect
+      .poll(async () => readStored(serviceWorker, ["viewerAutoGlobal", "sponsorMarks"]))
+      .toEqual({ viewerAutoGlobal: "theater", sponsorMarks: true });
+  });
+
+  test("language selection survives the options-page reload", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    const page = await openExtensionPage(context, extensionId, OPTIONS);
+    const radios = page.locator("#langGrid [role=radio]"); // system, en, ru, ...
+    await radios.nth(2).click();
+    await expect.poll(async () => (await readStored(serviceWorker, "uiLang")).uiLang).toBe("ru");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("#langGrid [role=radio]").nth(2)).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 
   test("glass-opacity slider persists min/max via Home/End", async ({
@@ -117,6 +147,23 @@ test.describe("Options · General", () => {
     await expect
       .poll(async () => (await readStored(serviceWorker, "globalSpeed")).globalSpeed)
       .toBeCloseTo(1.33, 2);
+  });
+
+  test("invalid backup import is rejected without damaging existing settings", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    await setStorage(serviceWorker, { globalSpeed: 1.6 });
+    const page = await openExtensionPage(context, extensionId, OPTIONS);
+    await page.locator("#nav-data").click();
+    await page.locator("input[type=file]").setInputFiles({
+      name: "broken.json",
+      mimeType: "application/json",
+      buffer: Buffer.from("{ definitely not json"),
+    });
+    await expect(page.locator("#importBtn")).toHaveClass(/btn-err/);
+    expect((await readStored(serviceWorker, "globalSpeed")).globalSpeed).toBeCloseTo(1.6, 2);
   });
 });
 
@@ -268,7 +315,9 @@ test.describe("Options · Saved", () => {
     await page.locator("#nav-data").click(); // Saved lives under the Data group
     await expect(page.locator("#savedLists")).toContainText("example.com");
     await page.locator(".saved-row", { hasText: "example.com" }).locator(".saved-del").click();
-    await expect.poll(async () => (await readStored(serviceWorker, "domains")).domains).toEqual({});
+    await expect
+      .poll(async () => (await readStored(serviceWorker, "domains")).domains)
+      .toBeUndefined();
     // The global speed is untouched.
     expect((await readStored(serviceWorker, "globalSpeed")).globalSpeed).toBeCloseTo(1.25, 2);
   });

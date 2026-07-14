@@ -54,6 +54,7 @@ interface MountOptions {
   tab?: { id: number; url: string };
   settings?: Record<string, unknown>;
   replies?: Record<string, unknown>;
+  failSetKeys?: string[];
 }
 
 export interface Mounted {
@@ -61,6 +62,7 @@ export interface Mounted {
   sendSpy: ReturnType<typeof vi.fn>;
   saved: () => Record<string, unknown>;
   lastCall: (action: string) => Record<string, unknown> | undefined;
+  emitRuntimeMessage: (msg: Record<string, unknown>, sender?: Record<string, unknown>) => void;
 }
 
 let root: Root | null = null;
@@ -78,30 +80,85 @@ export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
     messages,
     tab: opts.tab,
     settings: { popupGuideSeen: true, ...opts.settings },
+    failSetKeys: opts.failSetKeys,
   });
+  const runtimeListeners: Array<
+    (msg: Record<string, unknown>, sender?: Record<string, unknown>) => void
+  > = [];
+  chrome.runtime.onMessage.addListener = ((
+    fn: (msg: Record<string, unknown>, sender?: Record<string, unknown>) => void,
+  ) => {
+    runtimeListeners.push(fn);
+  }) as typeof chrome.runtime.onMessage.addListener;
+  chrome.runtime.onMessage.removeListener = ((
+    fn: (msg: Record<string, unknown>, sender?: Record<string, unknown>) => void,
+  ) => {
+    const i = runtimeListeners.indexOf(fn);
+    if (i >= 0) runtimeListeners.splice(i, 1);
+  }) as typeof chrome.runtime.onMessage.removeListener;
   (globalThis as unknown as { chrome: typeof chrome; browser?: unknown }).chrome = chrome;
   (globalThis as unknown as { browser?: unknown }).browser = undefined;
 
   const replies: Record<string, unknown> = {
     getSpeed: { speed: 1, domain: "", channel: null, channelName: "", live: false },
     getTarget: { target: 5, scope: null, channel: null, channelName: "", live: false },
+    getViewerAuto: { mode: "off", scope: null, channel: null, channelName: "" },
+    getViewerState: { mode: "off" },
+    setViewerState: { success: true, mode: "off" },
+    getViewerFit: { mode: "contain", scope: null, channel: null, channelName: "" },
     setSpeed: { success: true, speed: undefined, live: false },
+    setViewerFit: { success: true },
     ...opts.replies,
   };
 
   const sendSpy = vi.spyOn(chrome.tabs, "sendMessage").mockImplementation(((
     _id: number,
-    msg: { action: string; speed?: number },
-    cb?: (r?: unknown) => void,
+    msg: { action: string; speed?: number; mode?: string },
+    optionsOrCb?: { frameId?: number } | ((r?: unknown) => void),
+    cbArg?: (r?: unknown) => void,
   ) => {
-    const base = replies[msg.action] as Record<string, unknown> | undefined;
-    // setSpeed echoes the requested speed unless a test overrides it.
+    const cb = typeof optionsOrCb === "function" ? optionsOrCb : cbArg;
+    const raw = replies[msg.action];
+    const base =
+      typeof raw === "function"
+        ? (raw as (msg: Record<string, unknown>, chrome: typeof globalThis.chrome) => unknown)(
+            msg,
+            chrome,
+          )
+        : raw;
+    // Mutating actions echo the requested value unless a test overrides it.
     const resp =
       base && msg.action === "setSpeed" && base.speed === undefined
         ? { ...base, speed: msg.speed }
-        : base;
-    cb?.(resp);
+        : base && msg.action === "setViewerFit" && base.mode === undefined
+          ? { ...base, mode: msg.mode }
+          : base;
+    if (resp && typeof resp.__delayMs === "number") {
+      const { __delayMs, ...delayed } = resp;
+      setTimeout(() => cb?.(delayed), __delayMs);
+    } else {
+      cb?.(resp);
+    }
   }) as unknown as typeof chrome.tabs.sendMessage) as unknown as ReturnType<typeof vi.fn>;
+  const nativeRuntimeSend = chrome.runtime.sendMessage.bind(chrome.runtime);
+  vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(((
+    msg: Record<string, unknown>,
+    cb?: (r?: unknown) => void,
+  ) => {
+    if (msg.action === "whoami") {
+      cb?.({ tab: opts.tab });
+      return;
+    }
+    if (msg.action === "relayToTab" && typeof msg.tabId === "number" && msg.msg) {
+      chrome.tabs.sendMessage(msg.tabId, msg.msg as Record<string, unknown>, cb);
+      return;
+    }
+    if (msg.action === "mutateStoredMap") {
+      nativeRuntimeSend(msg, cb);
+      return;
+    }
+    cb?.(undefined);
+  }) as unknown as typeof chrome.runtime.sendMessage);
 
   // Re-import the popup graph fresh so platform/browser's `api` binds to this mock.
   vi.resetModules();
@@ -129,5 +186,12 @@ export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
       | Record<string, unknown>
       | undefined;
 
-  return { replies, sendSpy, saved, lastCall };
+  const emitRuntimeMessage = (
+    msg: Record<string, unknown>,
+    sender: Record<string, unknown> = { tab: opts.tab },
+  ) => {
+    for (const fn of [...runtimeListeners]) fn(msg, sender);
+  };
+
+  return { replies, sendSpy, saved, lastCall, emitRuntimeMessage };
 }

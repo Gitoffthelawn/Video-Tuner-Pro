@@ -2,24 +2,27 @@
 // speed is never applied. Drives playback toward the live edge and back to 100%.
 import { ctxValid } from "../platform/browser.js";
 import { MIN_FORWARD_BUFFER, CATCHUP_DWELL_MS } from "../core/constants.js";
-import { decideCatchupSpeed, settleCatchupRate } from "./catchup.js";
+import { catchupBufferFloor, decideCatchupSpeed, settleCatchupRate } from "./catchup.js";
 import { S } from "../state.js";
 import { applyAll } from "../speed.js";
 import { teardown } from "../index.js";
 import { liveVideo, onStreamPage } from "./detection.js";
 import { forwardBuffer, streamLatency } from "./metrics.js";
 
-let lastDropped = 0; // dropped-frame counter from the previous tick
+const droppedFrames = new WeakMap<HTMLVideoElement, number>();
 let lastControlAt = 0;
 let lastStepAt = 0; // when the applied catch-up step last changed — the dwell anchor
+let activeLiveVideo: HTMLVideoElement | null = null;
 
 // Net video frames dropped since the previous call (decoder/network can't keep up).
 function droppedFramesDelta(video: HTMLVideoElement): number {
   try {
     const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
     const total = q ? q.droppedVideoFrames : 0;
-    const delta = total - lastDropped;
-    lastDropped = total;
+    const previous = droppedFrames.get(video);
+    droppedFrames.set(video, total);
+    if (previous == null) return 0;
+    const delta = total - previous;
     return delta > 0 ? delta : 0;
   } catch (e) {
     return 0;
@@ -42,11 +45,19 @@ function applyPitchMode(video: HTMLVideoElement): void {
 // own latency manager nudging the rate — is re-asserted at most once a second,
 // so a disagreement costs one click per second instead of one per frame.
 let lastRateAssertAt = 0;
+let lastRateDecisionAt = 0;
 function setLiveRate(video: HTMLVideoElement, rate: number, decisionChanged: boolean): void {
-  if (Math.abs(video.playbackRate - rate) <= 0.001) return;
   const now = Date.now();
+  if (Math.abs(video.playbackRate - rate) <= 0.001) {
+    if (decisionChanged) {
+      lastRateAssertAt = now;
+      lastRateDecisionAt = now;
+    }
+    return;
+  }
   if (!decisionChanged && now - lastRateAssertAt < 1000) return;
   lastRateAssertAt = now;
+  if (decisionChanged) lastRateDecisionAt = now;
   try {
     video.playbackRate = rate;
   } catch (e) {
@@ -57,7 +68,9 @@ function setLiveRate(video: HTMLVideoElement, rate: number, decisionChanged: boo
 // Dispatcher: on a live stream, speed is controlled ONLY here. Sync OFF → hold
 // 100%. Sync ON → auto catch-up. Throttled: the indicator writes to the DOM,
 // which re-triggers the observer.
-export function controlLive(): void {
+export function controlLive(
+  snapshot: { live?: HTMLVideoElement | null; onStream?: boolean } = {},
+): void {
   if (!ctxValid()) {
     teardown();
     return;
@@ -65,7 +78,13 @@ export function controlLive(): void {
   const now = Date.now();
   if (now - lastControlAt < 250) return;
   lastControlAt = now;
-  const live = liveVideo();
+  const live = snapshot.live !== undefined ? snapshot.live : liveVideo();
+  if (live !== activeLiveVideo) {
+    activeLiveVideo = live;
+    lastStepAt = 0;
+    lastRateAssertAt = 0;
+    lastRateDecisionAt = 0;
+  }
   if (live) {
     if (S.liveSyncEnabled) runLiveSync(live);
     else forceLiveNormal(live);
@@ -74,7 +93,8 @@ export function controlLive(): void {
   // Not a live stream. Wait out the sticky window, then restore the user's
   // intended non-live speed — otherwise a (mistaken) live detection would leave
   // playback stuck at 100%.
-  if (onStreamPage()) return;
+  if (snapshot.onStream !== undefined ? snapshot.onStream : onStreamPage()) return;
+  if (S.speedManual) return;
   if (Math.abs(S.currentSpeed - S.userSpeed) > 0.001) {
     S.currentSpeed = S.userSpeed;
     applyAll();
@@ -105,20 +125,53 @@ function runLiveSync(video: HTMLVideoElement): void {
   // (we play faster than real-time toward the live edge), so the buffer still
   // gates the catch-up as an anti-stall guard.
   const lat = streamLatency();
-  // A rate switch itself drops a frame or two, and a bail here causes another
-  // switch — reacting to every dropped frame oscillates 100%↔105%+ forever.
-  // Ignore drops briefly after our own rate writes and below a real burst.
-  const rawDropped = droppedFramesDelta(video);
-  const dropped = Date.now() - lastRateAssertAt < 1500 || rawDropped < 3 ? 0 : rawDropped;
   const target = Math.max(S.liveSyncTarget, MIN_FORWARD_BUFFER);
 
-  const desired = decideCatchupSpeed({
+  const lag = lat != null ? lat : buffer;
+  const floor = catchupBufferFloor(lat, target, S.liveSyncBufferReserve);
+  const rawDropped = droppedFramesDelta(video);
+  let desired = decideCatchupSpeed({
     buffer,
     latency: lat,
-    dropped,
+    dropped: 0,
     target,
     reserve: S.liveSyncBufferReserve,
   });
+  const holdingCatchup = S.currentSpeed > 1 && lag > target && buffer > floor + 0.05;
+  let dropped = 0;
+  if (desired > 1 || holdingCatchup) {
+    // A rate switch itself drops a frame or two, and a bail here causes another
+    // switch — reacting to every dropped frame oscillates 100%↔105%+ forever.
+    // Ignore drops briefly after the catch-up decision changes and below a real burst.
+    dropped = Date.now() - lastRateDecisionAt < 1500 || rawDropped < 3 ? 0 : rawDropped;
+    if (dropped > 0) {
+      desired = decideCatchupSpeed({
+        buffer,
+        latency: lat,
+        dropped,
+        target,
+        reserve: S.liveSyncBufferReserve,
+      });
+    }
+  }
+  if (
+    desired <= 1 &&
+    S.currentSpeed > 1 &&
+    dropped === 0 &&
+    lag > target &&
+    buffer > floor + 0.05
+  ) {
+    desired = Math.min(S.currentSpeed, 1.05);
+  } else if (
+    lastStepAt > 0 &&
+    desired > 1 &&
+    desired < S.currentSpeed &&
+    dropped === 0 &&
+    lag > target &&
+    buffer > floor + 0.05
+  ) {
+    desired = S.currentSpeed;
+  }
   const settled = settleCatchupRate(
     desired,
     S.currentSpeed,

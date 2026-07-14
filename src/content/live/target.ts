@@ -7,33 +7,45 @@ import { resolveSyncTarget, type TargetScope } from "../core/resolve.js";
 import { channelKeys } from "../channel.js";
 import { ctxValid } from "../platform/browser.js";
 import { STORE } from "../platform/storage.js";
+import { mutateStoredMap } from "../../shared/map-mutation.js";
 import { S } from "../state.js";
 import { controlLive } from "./sync.js";
 
-export function persistSiteTarget(target: number): void {
-  if (!ctxValid() || window.top !== window) return; // top frame only — see speed.ts
-  STORE.get(["syncTargets"], (r) => {
-    const t = (r.syncTargets || {}) as Record<string, number>;
-    t[getDomain()] = target;
-    STORE.set({ syncTargets: t });
-  });
+type Done = (ok?: boolean) => void;
+
+export function persistSiteTarget(target: number, done?: Done): void {
+  if (!ctxValid() || window.top !== window) {
+    done?.(false);
+    return;
+  } // top frame only — see speed.ts
+  mutateStoredMap("syncTargets", { [getDomain()]: target }, [], done);
 }
 
-export function persistChannelTarget(target: number): void {
-  if (!ctxValid() || window.top !== window) return;
+export function persistChannelTarget(target: number, done?: Done): void {
+  if (!ctxValid() || window.top !== window) {
+    done?.(false);
+    return;
+  }
   const keys = channelKeys();
-  if (!keys.length) return;
-  STORE.get(["syncTargetChannels"], (r) => {
-    const t = (r.syncTargetChannels || {}) as Record<string, number>;
-    for (const k of keys) delete t[k];
-    t[keys[0]] = target;
-    STORE.set({ syncTargetChannels: t });
-  });
+  if (!keys.length) {
+    done?.(false);
+    return;
+  }
+  mutateStoredMap("syncTargetChannels", { [keys[0]]: target }, keys.slice(1), done);
 }
 
-export function persistGlobalTarget(target: number): void {
-  if (!ctxValid() || window.top !== window) return;
-  STORE.set({ syncTargetGlobal: target });
+export function persistGlobalTarget(target: number, done?: Done): void {
+  if (!ctxValid() || window.top !== window) {
+    done?.(false);
+    return;
+  }
+  STORE.set({ syncTargetGlobal: target }, (ok) => {
+    if (ok === false) {
+      done?.(false);
+      return;
+    }
+    STORE.remove("liveSyncTarget", done);
+  });
 }
 
 // Re-resolve the chain from the given maps and apply it (no persist).
@@ -55,40 +67,43 @@ function applyResolvedTarget(
 }
 
 // Resolve + apply from storage. Used on channel change and storage updates.
-export function applyResolvedTargetFromStore(): void {
-  if (!ctxValid()) return;
+export function applyResolvedTargetFromStore(done?: Done): void {
+  if (!ctxValid()) {
+    done?.(false);
+    return;
+  }
   STORE.get(["syncTargets", "syncTargetChannels", "syncTargetGlobal", "liveSyncTarget"], (r) => {
     applyResolvedTarget(
       (r.syncTargets || {}) as Record<string, number>,
       (r.syncTargetChannels || {}) as Record<string, number>,
       (r.syncTargetGlobal ?? r.liveSyncTarget) as number | undefined,
     ); // legacy liveSyncTarget = old global
+    done?.(true);
   });
 }
 
 // Drop the saved target for one scope and re-resolve the remaining chain.
-export function resetTargetScope(scope: TargetScope): void {
-  if (!ctxValid()) return;
-  STORE.get(["syncTargets", "syncTargetChannels", "syncTargetGlobal", "liveSyncTarget"], (r) => {
-    const site = (r.syncTargets || {}) as Record<string, number>;
-    const channels = (r.syncTargetChannels || {}) as Record<string, number>;
-    let global = (r.syncTargetGlobal ?? r.liveSyncTarget) as number | undefined;
-    if (scope === "channel") {
-      const keys = channelKeys();
-      if (!keys.length) return;
-      for (const k of keys) delete channels[k];
-      STORE.set({ syncTargetChannels: channels });
-    } else if (scope === "site") {
-      delete site[getDomain()];
-      STORE.set({ syncTargets: site });
-    } else if (scope === "global") {
-      global = undefined;
-      STORE.remove(["syncTargetGlobal", "liveSyncTarget"]); // clear the new + legacy global
-    } else {
+export function resetTargetScope(scope: TargetScope, done?: Done): void {
+  if (!ctxValid()) {
+    done?.(false);
+    return;
+  }
+  const finish = (ok?: boolean) => {
+    if (ok === false) done?.(false);
+    else applyResolvedTargetFromStore(done);
+  };
+  if (scope === "channel") {
+    const keys = channelKeys();
+    if (!keys.length) {
+      done?.(false);
       return;
     }
-    applyResolvedTarget(site, channels, global);
-  });
+    mutateStoredMap("syncTargetChannels", {}, keys, finish);
+  } else if (scope === "site") {
+    mutateStoredMap("syncTargets", {}, [getDomain()], finish);
+  } else if (scope === "global") {
+    STORE.remove(["syncTargetGlobal", "liveSyncTarget"], finish);
+  } else done?.(false);
 }
 
 // Preview a target live without persisting (the slider drag). Mirrors the manual
