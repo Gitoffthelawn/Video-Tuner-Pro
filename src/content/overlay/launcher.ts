@@ -500,8 +500,11 @@ function positionPanel(): void {
   // leaves the final panel a few pixels outside the viewport once it reaches 1x.
   const finalW = (frame.offsetWidth || POPUP_W + 2) * frameScale;
   const finalH = (frame.offsetHeight || frameH + 2) * frameScale;
-  const halfW = Math.min(window.innerWidth / 2, finalW / 2);
-  const halfH = Math.min(window.innerHeight / 2, finalH / 2);
+  // Leave a one-pixel inset for transformed borders and compositor rounding;
+  // otherwise an edge-aligned panel can report a tiny negative/overflowing
+  // coordinate even when its layout dimensions are mathematically clamped.
+  const halfW = Math.min(window.innerWidth / 2, finalW / 2 + 1);
+  const halfH = Math.min(window.innerHeight / 2, finalH / 2 + 1);
   const cx = Math.min(window.innerWidth - halfW, Math.max(halfW, fx * window.innerWidth));
   const cy = Math.min(window.innerHeight - halfH, Math.max(halfH, fy * window.innerHeight));
   // Preserve the clamped sub-pixel centre. Rounding an edge-aligned panel can
