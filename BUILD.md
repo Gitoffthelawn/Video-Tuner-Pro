@@ -160,7 +160,7 @@ Everything under `src/` is the original, unminified source. `node_modules/` and
 2. Keep `package.json`, `package-lock.json`, and `src/manifest.json` on the same
    semantic version. The tests and release workflow reject a mismatch.
 3. Update the Chrome Web Store and Firefox Add-ons listing text and privacy
-   disclosures before publishing whenever data handling changes. Version 3.1.0
+   disclosures before publishing whenever data handling changes. Version 3.1.1
    must describe the optional request to SponsorBlock documented in `PRIVACY.md`;
    the release workflow uploads packages but does not update store metadata.
 4. Publish a GitHub release tagged `v<manifest version>`. The workflow builds,
