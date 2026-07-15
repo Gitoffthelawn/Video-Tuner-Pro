@@ -53,6 +53,7 @@ const Z_OVERLAY = "2147483643";
 
 let fmt: ViewerFormat | null = null;
 let video: HTMLVideoElement | null = null; // the page media element we control
+let videoAutoIdentity = ""; // route/media identity captured when this viewer session opened
 // Capture the page-level verdict before Viewer hides/adopts the source. Some
 // MSE players (VK Video Live in particular) temporarily drop duration and
 // seekable ranges while captureStream() is attached, which otherwise turns a
@@ -1932,20 +1933,52 @@ function restoreMirroredSource(v: HTMLVideoElement): void {
   prevSourceVisibilityPriority = "";
 }
 
-// Auto-open on playback (the `viewerAuto` setting). Once per video element:
-// exiting adds the video to the seen set, so a manual close isn't fought the
-// next time the user hits play.
-const autoSeen = new WeakSet<HTMLVideoElement>();
+// Auto-open on playback (the `viewerAuto` setting). Sites such as YouTube reuse
+// one <video> across SPA navigations, so "once per element" would make closing
+// viewer on video A suppress auto-open for video B too. Remember page/media
+// identities per element instead: the same video stays dismissed, while a new
+// route can apply the configured auto mode again.
+const autoSeen = new WeakMap<HTMLVideoElement, Set<string>>();
+
+function autoOpenIdentity(): string {
+  if (isYouTube()) {
+    const id = youTubeVideoId();
+    if (id) return `youtube:${id}`;
+  }
+
+  // Hash changes don't normally replace media. Keep the query because generic
+  // SPA players commonly put their content id there.
+  try {
+    const url = new URL(location.href);
+    url.hash = "";
+    return `page:${url.href}`;
+  } catch {
+    // Some tests and embedded pages expose only a partial Location object.
+    const hostname = typeof location.hostname === "string" ? location.hostname : "";
+    const pathname = typeof location.pathname === "string" ? location.pathname : "";
+    const search = typeof location.search === "string" ? location.search : "";
+    return `page:${hostname}${pathname}${search}`;
+  }
+}
+
+function rememberAutoOpen(t: HTMLVideoElement, identity: string): void {
+  const seen = autoSeen.get(t) ?? new Set<string>();
+  seen.add(identity);
+  autoSeen.set(t, seen);
+}
+
 export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
   if (window.top !== window) return;
   // Our own mirror/backdrop videos live inside the overlay and are started
   // with .play() during enter(). Ignore them to avoid recursively opening a new
   // viewer for the viewer's own media.
   if (t.closest(`[${OVERLAY}]`)) return;
-  if (!S.viewerAutoEnabled || S.viewerAuto === "off" || fmt || autoSeen.has(t)) return;
+  const identity = autoOpenIdentity();
+  if (!S.viewerAutoEnabled || S.viewerAuto === "off" || fmt || autoSeen.get(t)?.has(identity))
+    return;
   const r = t.getBoundingClientRect();
   if (r.width < 200 || r.height < 112) return; // thumbnails/previews don't count
-  autoSeen.add(t);
+  rememberAutoOpen(t, identity);
   void enter(S.viewerAuto, t, { mirrorOnly: true });
 }
 
@@ -2001,6 +2034,7 @@ async function enter(
   document.dispatchEvent(new Event(CLOSE_EVENT));
   fmt = format;
   video = v;
+  videoAutoIdentity = autoOpenIdentity();
   surfaceVideo = null;
   backdropEl = null;
   surfaceShell = null;
@@ -2161,7 +2195,9 @@ export function exitViewer(): void {
     markerRanges = [];
     activeMarker = null;
     if (video) {
-      autoSeen.add(video); // closing means "not this one again"
+      // Use the identity captured on entry. The URL may already point at the
+      // next SPA video by the time the close animation finishes.
+      rememberAutoOpen(video, videoAutoIdentity);
       if (mirrored) {
         restoreMirroredSource(video);
       } else {
@@ -2227,6 +2263,7 @@ export function exitViewer(): void {
     liveAtViewerEntry = false;
     liveLayoutAtViewerEntry = false;
     video = null;
+    videoAutoIdentity = "";
     // Players re-measure on resize — let the restored one lay itself out.
     window.dispatchEvent(new Event("resize"));
     notifyViewerLayout();

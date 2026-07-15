@@ -64,8 +64,9 @@ export const S = {
   // surface it: "off", "fullscreen" (only while a video is fullscreen), or
   // "always" (whenever the pointer is over a video). Default: fullscreen only.
   overlayButton: "fullscreen" as "off" | "fullscreen" | "always",
-  // Auto-open the pop-out viewer when a video starts playing (once per video;
-  // a manual close wins). "off" | "normal" | "theater".
+  // Auto-open the pop-out viewer when a video starts playing (once per media
+  // identity in the current page session; a manual close wins for that video).
+  // "off" | "normal" | "theater".
   viewerAutoEnabled: true,
   viewerAuto: "off" as "off" | "normal" | "theater",
   viewerAutoScope: null as "channel" | "site" | "global" | null,
