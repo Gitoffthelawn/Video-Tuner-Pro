@@ -137,6 +137,42 @@ test("a stored auto-open mode opens the viewer when playback starts", async ({
     .toMatchObject({ attr: "theater", overlay: true, mirrored: true, theaterFits: true });
 });
 
+test("auto-open dismissal follows SPA media routes on a reused video element", async ({
+  page,
+  serviceWorker,
+}) => {
+  await setStorage(serviceWorker, { viewerAutoGlobal: "theater" });
+  await ready(page);
+
+  const replay = () =>
+    page.evaluate(async () => {
+      const video = document.getElementById("host")?.shadowRoot?.querySelector("video");
+      video?.pause();
+      await video?.play().catch(() => {});
+    });
+
+  await replay();
+  await expect.poll(() => state(page)).toMatchObject({ attr: "theater", overlay: true });
+  await page.keyboard.press("Escape");
+  await expect.poll(() => state(page)).toMatchObject({ attr: null, overlay: false });
+
+  // Closing wins for the current media route.
+  await replay();
+  await expect(page.locator("[data-vtp-viewer-overlay]")).toHaveCount(0);
+
+  // A SPA navigation reusing the same <video> is a new auto-open opportunity.
+  await page.evaluate(() => history.pushState({}, "", "/viewer.html?video=second"));
+  await replay();
+  await expect.poll(() => state(page)).toMatchObject({ attr: "theater", overlay: true });
+  await page.keyboard.press("Escape");
+  await expect.poll(() => state(page)).toMatchObject({ attr: null, overlay: false });
+
+  // Returning to a route dismissed earlier in this page session stays dismissed.
+  await page.evaluate(() => history.pushState({}, "", "/viewer.html"));
+  await replay();
+  await expect(page.locator("[data-vtp-viewer-overlay]")).toHaveCount(0);
+});
+
 test("a stored viewer fit mode is applied to the mirrored video", async ({
   page,
   serviceWorker,

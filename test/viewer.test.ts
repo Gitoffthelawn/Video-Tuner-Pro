@@ -1617,6 +1617,54 @@ describe("auto pop-out on play", () => {
     expect(viewerFormat()).toBeNull();
   });
 
+  it("re-arms a reused YouTube video element only when the video id changes", async () => {
+    const route = {
+      hostname: "www.youtube.com",
+      pathname: "/watch",
+      search: "?v=video-aaaaa",
+      href: "https://www.youtube.com/watch?v=video-aaaaa",
+    };
+    vi.stubGlobal("location", route);
+
+    try {
+      S.viewerAuto = "theater";
+      const { v } = makeVideo();
+      installCapture(v);
+
+      await v.play();
+      await flush();
+      expect(viewerFormat()).toBe("theater");
+      exitViewer();
+
+      // Timeline/query changes on the same YouTube video are not new media.
+      route.search = "?v=video-aaaaa&t=90";
+      route.href = "https://www.youtube.com/watch?v=video-aaaaa&t=90";
+      v.pause();
+      await v.play();
+      await flush();
+      expect(viewerFormat()).toBeNull();
+
+      // YouTube reuses the element after SPA navigation; the new id must open.
+      route.search = "?v=video-bbbbb";
+      route.href = "https://www.youtube.com/watch?v=video-bbbbb";
+      v.pause();
+      await v.play();
+      await flush();
+      expect(viewerFormat()).toBe("theater");
+      exitViewer();
+
+      // Returning to a video dismissed earlier in this page session stays dismissed.
+      route.search = "?v=video-aaaaa";
+      route.href = "https://www.youtube.com/watch?v=video-aaaaa";
+      v.pause();
+      await v.play();
+      await flush();
+      expect(viewerFormat()).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not auto-adopt the page video when mirroring is unavailable", async () => {
     S.viewerAuto = "theater";
     const { wrap, v } = makeVideo();
