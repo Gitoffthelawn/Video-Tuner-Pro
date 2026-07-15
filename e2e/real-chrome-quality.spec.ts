@@ -3,6 +3,7 @@
 // Usage:
 //   npm run test:real-chrome
 //   REAL_CHROME_SITES=youtube,twitch,boosty,kick,hlsjs npm run test:real-chrome
+//   REAL_CHROME_HEADLESS=0 REAL_CHROME_SITES=youtube npm run test:real-chrome  # visible
 //
 // The test uses one browser page and navigates it between targets so it never
 // opens multiple video tabs at once.
@@ -11,6 +12,7 @@ import {
   expect,
   chromium,
   type BrowserContext,
+  type Locator,
   type Page,
   type Worker,
 } from "@playwright/test";
@@ -62,6 +64,7 @@ const TARGETS: Record<string, Target> = {
     url: process.env.REAL_CHROME_KICK_URL || "https://kick.com/fissure_cs_ru2",
     video: "video",
     consent: 'button:has-text("Accept all")',
+    skipBlocked: !process.env.REAL_CHROME_KICK_URL,
     skipOffline: !process.env.REAL_CHROME_KICK_URL,
   },
   dpbo: {
@@ -130,9 +133,17 @@ async function dismissConsent(page: Page, selector?: string): Promise<void> {
 async function ensureRealChrome(page: Page): Promise<void> {
   const userAgent = await page.evaluate(() => navigator.userAgent);
   expect(userAgent, "test must run in real Google Chrome").toContain("Chrome/");
-  expect(userAgent, "test must not run in Chromium's headless shell").not.toContain(
-    "HeadlessChrome",
-  );
+  if (!realChromeHeadless()) {
+    expect(userAgent, "test must not run in Chromium's headless shell").not.toContain(
+      "HeadlessChrome",
+    );
+  }
+}
+
+// External smoke must not take over the user's desktop by default. Set
+// REAL_CHROME_HEADLESS=0 only when a visible browser window is explicitly wanted.
+function realChromeHeadless(): boolean {
+  return process.env.REAL_CHROME_HEADLESS !== "0";
 }
 
 async function startPageVideo(page: Page, selector: string): Promise<void> {
@@ -181,6 +192,14 @@ async function isAuthenticationWall(page: Page): Promise<boolean> {
     ((await page.getByPlaceholder("Логин или email").count()) > 0 &&
       (await page.getByPlaceholder("Пароль").count()) > 0)
   );
+}
+
+async function isSecurityPolicyBlocked(page: Page): Promise<boolean> {
+  const text = await page
+    .locator("body")
+    .innerText()
+    .catch(() => "");
+  return /request blocked by security policy/i.test(text);
 }
 
 function isBotBlocked(page: Page): boolean {
@@ -273,20 +292,68 @@ async function enterTheaterViewer(page: Page): Promise<void> {
   await expect(page.locator("[data-vtp-viewer-overlay]"), "viewer overlay").toBeVisible({
     timeout: 30_000,
   });
+  // The site's selector may resolve to a stale preview after an SPA transition.
+  // Viewer marks the exact media element it adopted/lifted; wait for that marker
+  // instead of comparing an arbitrary `video:first` clock.
+  const sourceVideo = page
+    .locator("[data-vtp-viewer-player-video],[data-vtp-viewer-adopted-video]")
+    .first();
   await expect
     .poll(
       () =>
-        page.evaluate(() => {
-          const overlay = document.querySelector("[data-vtp-viewer-overlay]");
-          const video = overlay?.querySelector("video") as HTMLVideoElement | null;
-          return !!video && !video.paused && video.readyState >= 2;
+        sourceVideo.evaluate((element) => {
+          const video = element as HTMLVideoElement;
+          return (
+            !video.paused &&
+            video.readyState >= 2 &&
+            (video.hasAttribute("data-vtp-viewer-player-video") ||
+              video.hasAttribute("data-vtp-viewer-adopted-video"))
+          );
         }),
       { timeout: 30_000 },
     )
     .toBe(true);
 }
 
+async function sampleVideoCadence(
+  locator: Locator | import("@playwright/test").ElementHandle<HTMLVideoElement>,
+  durationMs = 1800,
+): Promise<{ frames: number; fps: number; start: number; end: number }> {
+  return locator.evaluate(async (element, ms) => {
+    const video = element as HTMLVideoElement;
+    if (typeof video.requestVideoFrameCallback !== "function") {
+      return { frames: 0, fps: 0, start: video.currentTime, end: video.currentTime };
+    }
+    return new Promise<{ frames: number; fps: number; start: number; end: number }>((resolve) => {
+      let frames = 0;
+      let done = false;
+      const started = performance.now();
+      const startTime = video.currentTime;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        const elapsed = Math.max(1, performance.now() - started);
+        resolve({
+          frames,
+          fps: (frames * 1000) / elapsed,
+          start: startTime,
+          end: video.currentTime,
+        });
+      };
+      const frame = (now: number) => {
+        if (done) return;
+        frames += 1;
+        if (now - started >= ms) finish();
+        else video.requestVideoFrameCallback(frame);
+      };
+      video.requestVideoFrameCallback(frame);
+      setTimeout(finish, ms + 400);
+    });
+  }, durationMs);
+}
+
 interface QualityState {
+  native: boolean;
   visible: boolean;
   label: string;
   options: string[];
@@ -313,14 +380,22 @@ async function qualityState(page: Page): Promise<QualityState> {
     const options = Array.from(qwrap?.querySelectorAll(".qitem") ?? []).map(
       (item) => item.textContent?.trim() || "",
     );
-    const video = overlay?.querySelector("video") as HTMLVideoElement | null;
-    const source = document.querySelector("video") as HTMLVideoElement | null;
+    const video = (document.querySelector(
+      "[data-vtp-viewer-adopted-video],[data-vtp-viewer-player-video]",
+    ) ??
+      overlay?.querySelector(
+        "video:not([data-vtp-viewer-backdrop-video])",
+      )) as HTMLVideoElement | null;
+    // Read quality from the same adopted media element; a page can retain
+    // previews/background videos alongside the active viewer source.
+    const source = video ?? (document.querySelector("video") as HTMLVideoElement | null);
     const hls = (
       window as typeof window & {
         hls?: { currentLevel?: number; manualLevel?: number };
       }
     ).hls;
     return {
+      native: video?.hasAttribute("data-vtp-viewer-player-video") ?? false,
       visible: qwrap?.style.display === "block",
       label,
       options,
@@ -412,14 +487,17 @@ async function switchQualityAndAssertPlayback(
   return { before, target, after };
 }
 
-test("viewer quality switches on real video pages in real Google Chrome", async ({}, testInfo) => {
+test("viewer native playback or fallback quality works in real Google Chrome", async ({}, testInfo) => {
   const chromeExecutable = findChromeForTesting();
+  const headless = realChromeHeadless();
   const launchOptions = {
-    headless: false,
+    headless,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
       "--disable-features=DisableLoadExtensionCommandLineSwitch",
+      // Silence speakers without disabling the media/Web Audio pipeline.
+      "--mute-audio",
       "--autoplay-policy=no-user-gesture-required",
     ],
     ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: "chrome" as const }),
@@ -446,6 +524,10 @@ test("viewer quality switches on real video pages in real Google Chrome", async 
       try {
         await startPageVideo(page, target.video);
       } catch (error) {
+        if (target.skipBlocked && (isBotBlocked(page) || (await isSecurityPolicyBlocked(page)))) {
+          results[target.name] = { skipped: "site blocked automated Chrome/network access" };
+          continue;
+        }
         if (target.skipLocked && (await isLockedBoostyPost(page))) {
           results[target.name] = { skipped: "locked Boosty post in clean Chrome profile" };
           continue;
@@ -461,7 +543,102 @@ test("viewer quality switches on real video pages in real Google Chrome", async 
         throw error;
       }
       await enterTheaterViewer(page);
-      results[target.name] = await switchQualityAndAssertPlayback(page, target);
+      // Pin the exact media element that Viewer adopted/lifted. A YouTube SPA
+      // can keep a preview video and create a second player during navigation;
+      // re-resolving `video:first` here can compare two different media clocks.
+      const source = page
+        .locator("[data-vtp-viewer-player-video],[data-vtp-viewer-adopted-video]")
+        .first();
+      await expect(source, `${target.name} viewer source video`).toBeAttached();
+      // Pin the exact node. A framework can reorder/replace sibling videos while
+      // the SPA settles; repeatedly resolving `.first()` would silently compare
+      // two different media clocks and produce a misleading drift failure.
+      const sourceHandle = await source.elementHandle();
+      if (!sourceHandle) throw new Error(`${target.name} viewer source video disappeared`);
+      const nativeState = await sourceHandle.evaluate((element) => {
+        const video = element as HTMLVideoElement;
+        const player = video.closest("[data-vtp-viewer-player]") as HTMLElement | null;
+        const rect = player?.getBoundingClientRect();
+        return {
+          native: video.hasAttribute("data-vtp-viewer-player-video"),
+          open: !!player?.matches(":popover-open"),
+          fills:
+            !!rect &&
+            Math.round(rect.left) === 0 &&
+            Math.round(rect.top) === 0 &&
+            Math.round(rect.width) === window.innerWidth &&
+            Math.round(rect.height) === window.innerHeight,
+          time: video.currentTime,
+          paused: video.paused,
+        };
+      });
+      if (nativeState.native) {
+        await expect
+          .poll(() => sourceHandle.evaluate((element) => !(element as HTMLVideoElement).paused))
+          .toBe(true);
+        // YouTube may settle a seek/route transition just after the viewer is
+        // mounted. Start the clock assertion after that transition, not before.
+        await page.waitForTimeout(750);
+        const cadence = await sampleVideoCadence(sourceHandle);
+        const afterState = await sourceHandle.evaluate((element) => {
+          const video = element as HTMLVideoElement;
+          const buffered = Array.from({ length: video.buffered.length }, (_, index) => [
+            video.buffered.start(index),
+            video.buffered.end(index),
+          ]);
+          return {
+            time: video.currentTime,
+            paused: video.paused,
+            readyState: video.readyState,
+            networkState: video.networkState,
+            playbackRate: video.playbackRate,
+            currentSrc: video.currentSrc,
+            buffered,
+          };
+        });
+        const afterTime = afterState.time;
+        if (process.env.DEBUG_REAL_CHROME === "1") {
+          console.log(
+            `${target.name} native playback sample:`,
+            JSON.stringify({ nativeState, cadence, afterState }),
+          );
+        }
+        expect(nativeState.open, `${target.name} native player is in the top layer`).toBe(true);
+        expect(nativeState.fills, `${target.name} native player fills Theater`).toBe(true);
+        expect(nativeState.paused, `${target.name} native player keeps playing`).toBe(false);
+        expect(cadence.end, `${target.name} playback clock advances`).toBeGreaterThan(
+          cadence.start + 0.8,
+        );
+        if (target.name === "youtube") {
+          expect(
+            cadence.fps,
+            "YouTube Theater stays above the reported 15fps regression",
+          ).toBeGreaterThanOrEqual(18);
+        } else {
+          expect(cadence.frames, `${target.name} presents frames`).toBeGreaterThan(5);
+        }
+        results[target.name] = { mode: "native-player", cadence, before: nativeState, afterTime };
+      } else {
+        results[target.name] = await switchQualityAndAssertPlayback(page, target);
+      }
+
+      // Exercise the actual mouse path that users take, not only the keyboard
+      // contract or a DOM marker. The popup must paint above the lifted player
+      // with a meaningful box and a loaded extension document.
+      await page.mouse.move(500, 350);
+      const launcher = page.locator("#vtp-launcher-host").locator("button").first();
+      await expect(launcher, `${target.name} on-video launcher`).toBeVisible();
+      await launcher.click();
+      await expect(launcher).toHaveAttribute("data-popup-open", "true");
+      const popupBox = await page.locator("#vtp-launcher-host").locator("iframe").boundingBox();
+      expect(popupBox?.width, `${target.name} popup width`).toBeGreaterThan(300);
+      expect(popupBox?.height, `${target.name} popup height`).toBeGreaterThan(200);
+      const popupFrame = page.frames().find((frame) => frame.url().includes("/popup/popup.html"));
+      expect(popupFrame, `${target.name} popup document loaded`).toBeDefined();
+      await expect(popupFrame!.locator("body")).toBeVisible();
+      await launcher.click();
+      await expect(launcher).toHaveAttribute("data-popup-open", "false");
+
       completedTargets += 1;
       await page.screenshot({ path: testInfo.outputPath(`${target.name}-quality.png`) });
       await page.keyboard.press("Escape");

@@ -62,6 +62,38 @@ describe("viewer fit persistence", () => {
     persistGlobalViewerFit("cover");
     expect(get(["viewerFitGlobal"]).viewerFitGlobal).toBe("cover");
   });
+
+  it("reports a dead context instead of writing any fit setting", () => {
+    const savedId = globalThis.chrome.runtime.id;
+    (globalThis.chrome.runtime as { id?: unknown }).id = undefined;
+    const done = vi.fn();
+    try {
+      persistSiteViewerFit("fill", done);
+      persistChannelViewerFit("fill", done);
+      persistGlobalViewerFit("fill", done);
+      expect(done).toHaveBeenCalledTimes(3);
+      expect(done).toHaveBeenNthCalledWith(1, false);
+      expect(done).toHaveBeenNthCalledWith(2, false);
+      expect(done).toHaveBeenNthCalledWith(3, false);
+      expect(sites()).toEqual({});
+      expect(channels()).toEqual({});
+    } finally {
+      (globalThis.chrome.runtime as { id?: unknown }).id = savedId;
+    }
+  });
+
+  it("rejects channel and unknown reset scopes when no canonical channel exists", () => {
+    const done = vi.fn();
+    persistChannelViewerFit("fill", done);
+    resetViewerFitScope("channel", done);
+    resetViewerFitScope("unknown" as never, done);
+
+    expect(done).toHaveBeenCalledTimes(3);
+    expect(done).toHaveBeenNthCalledWith(1, false);
+    expect(done).toHaveBeenNthCalledWith(2, false);
+    expect(done).toHaveBeenNthCalledWith(3, false);
+    expect(channels()).toEqual({});
+  });
 });
 
 describe("applyResolvedViewerFitFromStore", () => {

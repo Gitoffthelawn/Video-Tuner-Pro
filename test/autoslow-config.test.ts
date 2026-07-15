@@ -153,6 +153,16 @@ describe("resetAutoSlowScope", () => {
     expect(channelMap).toEqual({ UC1: { target: 6 }, "@h": { target: 6 } });
     expect(channels()).toBeUndefined();
   });
+
+  it("does not attempt a channel reset when no channel identity exists", () => {
+    const done = vi.fn();
+    STORE.set({ autoSlowChannels: { UC1: { target: 6 } } });
+
+    resetAutoSlowScope("channel", done);
+
+    expect(done).toHaveBeenCalledWith(false);
+    expect(channels()).toEqual({ UC1: { target: 6 } });
+  });
 });
 
 describe("setAutoSlowPreview", () => {
@@ -160,5 +170,23 @@ describe("setAutoSlowPreview", () => {
     setAutoSlowPreview({ target: 10 });
     expect(S.autoSlowTarget).toBe(10);
     expect(get(["autoSlowGlobal"]).autoSlowGlobal).toBeUndefined();
+  });
+});
+
+describe("dead extension context", () => {
+  it("rejects writes and resolution when the runtime id disappears", () => {
+    const done = vi.fn();
+    const runtime = globalThis.chrome.runtime as { id?: string };
+    const saved = runtime.id;
+    runtime.id = undefined;
+    try {
+      persistGlobalAutoSlow({ target: 8 }, done);
+      applyResolvedAutoSlowFromStore(done);
+      expect(done).toHaveBeenNthCalledWith(1, false);
+      expect(done).toHaveBeenNthCalledWith(2, false);
+      expect(get(["autoSlowGlobal"]).autoSlowGlobal).toBeUndefined();
+    } finally {
+      runtime.id = saved;
+    }
   });
 });

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// The pop-out viewer either mirrors or adopts the page's <video> into its own
-// overlay with our control bar. Mock only the video picker and i18n; the overlay,
-// bar and media wiring run against real jsdom DOM.
+// The pop-out viewer renders the page's original <video> in its own overlay so
+// picture and sound keep one media clock. captureStream is reserved for the
+// optional decorative backdrop. Mock only the video picker and i18n; the
+// overlay, bar and media wiring run against real jsdom DOM.
 const h = vi.hoisted(() => ({
   primary: null as unknown,
   videos: [] as HTMLVideoElement[],
@@ -236,12 +237,16 @@ function installDelayedQualityBridge() {
 
 function installBackdropMirror(v: HTMLVideoElement) {
   const stop = vi.fn();
+  const stopAudio = vi.fn();
+  const applyConstraints = vi.fn().mockResolvedValue(undefined);
+  const videoTrack = { stop, applyConstraints };
   const stream = {
-    getVideoTracks: () => [{}],
-    getTracks: () => [{ stop }],
+    getVideoTracks: () => [videoTrack],
+    getAudioTracks: () => [{ stop: stopAudio }],
+    getTracks: () => [videoTrack],
   } as unknown as MediaStream;
   Object.defineProperty(v, "captureStream", { value: () => stream, configurable: true });
-  return { stop, stream };
+  return { stop, stopAudio, applyConstraints, stream };
 }
 
 describe("fmtTime", () => {
@@ -321,26 +326,84 @@ describe("toggleViewer — lifecycle", () => {
     expect(barEl()).not.toBeNull();
   });
 
-  it("mirrors through captureStream when available and leaves the source in place", async () => {
+  it("lifts a compatible native player without detaching its video or controls", async () => {
     const { wrap, v } = makeVideo();
-    const mirrorPlay = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const nativeControl = document.createElement("button");
+    nativeControl.textContent = "native";
+    wrap.appendChild(nativeControl);
+    wrap.getBoundingClientRect = v.getBoundingClientRect;
     v.controls = true;
-    const { stop, stream } = installCapture(v);
+    let popoverOpen = false;
+    const matches = wrap.matches.bind(wrap);
+    wrap.matches = (selector: string) =>
+      selector === ":popover-open" ? popoverOpen : matches(selector);
+    Object.assign(wrap, {
+      showPopover: () => {
+        popoverOpen = true;
+      },
+      hidePopover: () => {
+        popoverOpen = false;
+      },
+    });
+    h.primary = v;
+
+    await openViewer("normal");
+
+    expect(wrap.hasAttribute("data-vtp-viewer-player")).toBe(true);
+    expect(wrap.getAttribute("data-vtp-viewer-player-format")).toBe("normal");
+    expect(v.parentElement).toBe(wrap);
+    expect(v.controls).toBe(true);
+    expect(barEl()).toBeNull();
+    expect(popoverOpen).toBe(true);
+
+    exitViewer();
+    expect(popoverOpen).toBe(false);
+    expect(wrap.hasAttribute("data-vtp-viewer-player")).toBe(false);
+    expect(v.parentElement).toBe(wrap);
+    expect(v.controls).toBe(true);
+  });
+
+  it("resumes a native player once when top-layer entry pauses active playback", async () => {
+    const { wrap, v } = makeVideo();
+    wrap.getBoundingClientRect = v.getBoundingClientRect;
+    let popoverOpen = false;
+    const matches = wrap.matches.bind(wrap);
+    wrap.matches = (selector: string) =>
+      selector === ":popover-open" ? popoverOpen : matches(selector);
+    Object.assign(wrap, {
+      showPopover: () => {
+        popoverOpen = true;
+      },
+      hidePopover: () => {
+        popoverOpen = false;
+      },
+    });
+    h.primary = v;
+    v.play();
+
+    await openViewer("theater");
+    v.pause(); // simulate the host player pausing while entering the top layer
+    await flush();
+    expect(v.paused).toBe(false);
+
+    v.pause(); // the one-shot guard must not fight a later user pause
+    expect(v.paused).toBe(true);
+  });
+
+  it("uses the original video even when captureStream is available", async () => {
+    const { wrap, v } = makeVideo();
+    v.controls = true;
+    const { stop, capture } = installCapture(v);
     h.primary = v;
     await openViewer("normal");
-    const mirror = overlayEl()!.querySelector("video") as HTMLVideoElement;
-    expect(v.parentElement).toBe(wrap);
-    expect(v.controls).toBe(true);
-    expect(mirror).toBeInstanceOf(HTMLVideoElement);
-    expect(mirror).not.toBe(v);
-    expect(mirror.srcObject).toBe(stream);
-    mirror.dispatchEvent(new MouseEvent("click"));
-    expect(v.paused).toBe(false);
+    expect(overlayEl()?.querySelector("video:not([data-vtp-viewer-backdrop-video])")).toBe(v);
+    expect(v.parentElement).not.toBe(wrap);
+    expect(v.controls).toBe(false);
+    expect(capture).not.toHaveBeenCalled();
     exitViewer();
-    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).not.toHaveBeenCalled();
     expect(v.parentElement).toBe(wrap);
     expect(v.controls).toBe(true);
-    mirrorPlay.mockRestore();
   });
 
   it("theater stretches the video to the whole overlay", async () => {
@@ -1212,9 +1275,9 @@ describe("control bar", () => {
     expect(v.style.objectFit).toBe("contain");
   });
 
-  it("can mirror the video under the normal viewer glass", async () => {
+  it("can mirror only the decorative background under the normal viewer glass", async () => {
     const { v } = makeVideo();
-    const { stop, stream } = installBackdropMirror(v);
+    const { stop, stopAudio, applyConstraints, stream } = installBackdropMirror(v);
     const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     S.viewerBackdropVideo = true;
@@ -1222,11 +1285,14 @@ describe("control bar", () => {
 
     await openViewer("normal");
 
-    expect(v.style.getPropertyValue("visibility")).toBe("hidden");
-    expect(v.style.getPropertyPriority("visibility")).toBe("important");
+    expect(v.style.getPropertyValue("visibility")).toBe("");
     const bg = viewerBackdropVideo();
     expect(bg).toBeTruthy();
     expect(bg?.srcObject).toBe(stream);
+    expect(stopAudio).toHaveBeenCalledOnce();
+    expect(applyConstraints).toHaveBeenCalledWith({
+      frameRate: { ideal: 10, max: 15 },
+    });
     expect(bg?.style.filter).toBe("blur(28px) saturate(150%) brightness(0.72) contrast(1.16)");
     const backdrop = viewerBackdrop();
     expect(backdrop?.style.backdropFilter).toBe("");
@@ -1246,14 +1312,14 @@ describe("control bar", () => {
     pause.mockRestore();
   });
 
-  it("restores the source video's previous inline visibility after mirror mode", async () => {
+  it("restores the original video's previous inline visibility", async () => {
     const { v } = makeVideo();
     installBackdropMirror(v);
     v.style.setProperty("visibility", "collapse");
     h.primary = v;
 
     await openViewer("normal");
-    expect(v.style.getPropertyValue("visibility")).toBe("hidden");
+    expect(v.style.getPropertyValue("visibility")).toBe("");
 
     exitViewer();
     expect(v.style.getPropertyValue("visibility")).toBe("collapse");
@@ -1295,7 +1361,30 @@ describe("control bar", () => {
     }
   });
 
-  it("pauses the mirrored background canvas loop while the tab is hidden", async () => {
+  it("caps the decorative canvas at ten frames per second", async () => {
+    vi.useFakeTimers();
+    const { v } = makeVideo();
+    await v.play();
+    const drawImage = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    try {
+      S.viewerBackdropVideo = true;
+      h.primary = v;
+      await openViewer("normal");
+      expect(drawImage).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(499);
+
+      expect(drawImage).toHaveBeenCalledTimes(5);
+      exitViewer();
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it("pauses the low-rate background canvas loop while the tab is hidden", async () => {
     vi.useFakeTimers();
     const { v } = makeVideo();
     installBackdropMirror(v);
@@ -1317,7 +1406,7 @@ describe("control bar", () => {
 
       Object.defineProperty(document, "hidden", { value: false, configurable: true });
       document.dispatchEvent(new Event("visibilitychange"));
-      await vi.advanceTimersByTimeAsync(66);
+      await vi.advanceTimersByTimeAsync(101);
 
       expect(drawImage).toHaveBeenCalledTimes(2);
       exitViewer();
@@ -1559,7 +1648,7 @@ describe("control bar", () => {
     await vi.advanceTimersByTimeAsync(800);
     await flush();
 
-    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture).not.toHaveBeenCalled();
   });
 
   it("the format button switches and the close button exits", async () => {
@@ -1592,6 +1681,40 @@ describe("control bar", () => {
 });
 
 describe("auto pop-out on play", () => {
+  it("still allows an explicit Viewer command on the YouTube homepage", async () => {
+    const { v } = makeVideo();
+    h.primary = v;
+    try {
+      vi.stubGlobal("location", { hostname: "www.youtube.com", pathname: "/" });
+      await openViewer("normal");
+      expect(viewerFormat()).toBe("normal");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ignores a playing YouTube homepage preview and opens it after SPA navigation to /watch", async () => {
+    S.viewerAuto = "normal";
+    const { v } = makeVideo();
+    h.primary = v;
+    installCapture(v);
+    try {
+      vi.stubGlobal("location", { hostname: "www.youtube.com", pathname: "/" });
+      v.play();
+      await flush();
+      expect(viewerFormat()).toBeNull();
+
+      vi.stubGlobal("location", { hostname: "www.youtube.com", pathname: "/watch" });
+      // YouTube often keeps the preview element playing through the SPA route
+      // transition, so there is deliberately no second play event here.
+      document.dispatchEvent(new Event("yt-navigate-finish"));
+      await flush();
+      expect(viewerFormat()).toBe("normal");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("opens in the configured format when a video starts", async () => {
     S.viewerAuto = "theater";
     const { wrap, v } = makeVideo();
@@ -1599,8 +1722,8 @@ describe("auto pop-out on play", () => {
     v.play();
     await flush();
     expect(viewerFormat()).toBe("theater");
-    expect(v.parentElement).toBe(wrap);
-    expect(overlayEl()?.querySelector("video")).not.toBe(v);
+    expect(v.parentElement).not.toBe(wrap);
+    expect(overlayEl()?.querySelector("video:not([data-vtp-viewer-backdrop-video])")).toBe(v);
   });
 
   it("fires once per video — a manual close wins over the next play", async () => {
@@ -1665,14 +1788,14 @@ describe("auto pop-out on play", () => {
     }
   });
 
-  it("does not auto-adopt the page video when mirroring is unavailable", async () => {
+  it("auto-opens with the original video when captureStream is unavailable", async () => {
     S.viewerAuto = "theater";
     const { wrap, v } = makeVideo();
     v.play();
     await flush();
-    expect(viewerFormat()).toBeNull();
-    expect(v.parentElement).toBe(wrap);
-    expect(overlayEl()).toBeNull();
+    expect(viewerFormat()).toBe("theater");
+    expect(v.parentElement).not.toBe(wrap);
+    expect(overlayEl()?.contains(v)).toBe(true);
   });
 
   it("ignores play events from inside our own overlay", async () => {

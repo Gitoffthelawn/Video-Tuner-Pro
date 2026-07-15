@@ -4,12 +4,17 @@
 // `flush()` after mount and after interactions.
 import { type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { act } from "react";
 import { vi } from "vitest";
 import { createMockChrome } from "./chrome.js";
 import messages from "../../src/_locales/en/messages.json";
 
-export const flush = () => new Promise<void>((r) => setTimeout(r));
-export const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+// Keep the async boundary used by popup tests inside React's act(). This is
+// important for debounced storage writes and effects: a test that waits for a
+// timer must also flush the resulting render, otherwise React emits a warning
+// and the assertion can race the UI update.
+export const flush = () => act(async () => new Promise<void>((r) => setTimeout(r)));
+export const wait = (ms: number) => act(async () => new Promise<void>((r) => setTimeout(r, ms)));
 export const byId = (id: string) => document.getElementById(id) as HTMLElement;
 
 // Sliders are Radix (a <span role="slider"> thumb), not <input type=range>. Read
@@ -44,10 +49,14 @@ export function setSlider(id: string, value: number, { commit = true }: { commit
   const opts = { bubbles: true, button: 0, clientX, clientY: 5 };
   // flushSync so the controlled value re-renders before the next event — else
   // Radix's commit-on-release sees an unchanged value and skips onValueCommit.
-  flushSync(() => root.dispatchEvent(new MouseEvent("pointerdown", opts)));
-  flushSync(() => root.dispatchEvent(new MouseEvent("pointermove", opts)));
-  if (commit)
-    flushSync(() => root.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })));
+  act(() => {
+    flushSync(() => root.dispatchEvent(new MouseEvent("pointerdown", opts)));
+    flushSync(() => root.dispatchEvent(new MouseEvent("pointermove", opts)));
+    if (commit)
+      flushSync(() =>
+        root.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })),
+      );
+  });
 }
 
 interface MountOptions {
@@ -69,7 +78,7 @@ let root: Root | null = null;
 
 export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
   if (root) {
-    root.unmount();
+    act(() => root!.unmount());
     root = null;
   }
   document.body.innerHTML = '<div id="root"></div>';
@@ -163,7 +172,9 @@ export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
   // Re-import the popup graph fresh so platform/browser's `api` binds to this mock.
   vi.resetModules();
   const { renderApp } = await import("./render-app.js");
-  root = renderApp(byId("root"));
+  act(() => {
+    root = renderApp(byId("root"));
+  });
   // Settle: wait until the init round-trip (getSpeed) has fired — that means the
   // tab resolved and the cards' effects ran — then let the apply re-render flush.
   for (let i = 0; i < 20; i++) {
@@ -173,7 +184,7 @@ export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
   await flush();
   // Belt and suspenders: if the walkthrough did render (e.g. a test enabled it),
   // dismiss it so the assertions run against the normal popup.
-  (document.querySelector(".tour-skip") as HTMLElement | null)?.click();
+  act(() => (document.querySelector(".tour-skip") as HTMLElement | null)?.click());
   await flush();
 
   const saved = () => {
@@ -190,7 +201,9 @@ export async function mountApp(opts: MountOptions = {}): Promise<Mounted> {
     msg: Record<string, unknown>,
     sender: Record<string, unknown> = { tab: opts.tab },
   ) => {
-    for (const fn of [...runtimeListeners]) fn(msg, sender);
+    act(() => {
+      for (const fn of [...runtimeListeners]) fn(msg, sender);
+    });
   };
 
   return { replies, sendSpy, saved, lastCall, emitRuntimeMessage };

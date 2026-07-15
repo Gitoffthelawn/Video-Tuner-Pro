@@ -214,11 +214,11 @@ function scanKnownShadowHosts(): boolean {
 }
 
 function usableTrackedVideo(v: HTMLVideoElement): boolean {
+  const adopted = v.hasAttribute(ADOPTED_VIEWER_VIDEO);
   return (
     v.isConnected &&
-    !isOwnNode(v) &&
-    (!v.closest("[data-vtp-viewer-overlay],[data-vtp-launcher],[data-vtp-badge]") ||
-      v.hasAttribute(ADOPTED_VIEWER_VIDEO))
+    (!isOwnNode(v) || adopted) &&
+    (!v.closest("[data-vtp-viewer-overlay],[data-vtp-launcher],[data-vtp-badge]") || adopted)
   );
 }
 

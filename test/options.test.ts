@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,7 @@ const messages = JSON.parse(read("../src/_locales/en/messages.json"));
 // The page renders with React, which flushes its work asynchronously; let pending
 // renders settle before reading the DOM. (Storage writes are synchronous, so a
 // value assertion right after an interaction still holds — this is for the markup.)
-export const flush = () => new Promise<void>((r) => setTimeout(r));
+export const flush = () => act(async () => new Promise<void>((r) => setTimeout(r)));
 
 async function mount(settings: Record<string, unknown>) {
   document.body.innerHTML = read("../src/options/options.html")
@@ -27,7 +28,9 @@ async function mount(settings: Record<string, unknown>) {
   );
   (globalThis as unknown as { browser?: unknown }).browser = undefined;
   vi.resetModules();
-  await import("../src/options/index.js");
+  await act(async () => {
+    await import("../src/options/index.js");
+  });
   await flush();
   // Read storage back through the same mock the page wrote to.
   return (keys: string[]) => {

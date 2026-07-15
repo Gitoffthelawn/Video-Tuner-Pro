@@ -1,17 +1,27 @@
 import { test, expect, clearAll, setStorage, sendToContent } from "./fixtures/extension.js";
 
-// The pop-out viewer against a Boosty-shaped page (viewer.html): sticky
-// header, fixed modal, player guts in an open shadow root. In modern Chromium
-// the viewer mirrors the source video through captureStream(), so the site-owned
-// <video> stays in place while our overlay renders a separate surface.
+// The pop-out viewer against a Boosty-shaped page (viewer.html): sticky header,
+// fixed modal, player guts in an open shadow root. The viewer must render the
+// original media element; captureStream is allowed only for the optional blurred
+// backdrop, never for the primary picture/audio surface.
 const state = (page: import("@playwright/test").Page) =>
   page.evaluate(() => {
     const sr = document.getElementById("host")?.shadowRoot;
     const overlay = document.querySelector("[data-vtp-viewer-overlay]");
-    const overlayVideo = overlay?.querySelector("video") as HTMLVideoElement | null;
-    const sourceVideo = sr?.querySelector("video") as HTMLVideoElement | null;
+    const overlayVideo = overlay?.querySelector(
+      "video:not([data-vtp-viewer-backdrop-video])",
+    ) as HTMLVideoElement | null;
+    const shadowVideo = sr?.querySelector("video") as HTMLVideoElement | null;
+    const sourceVideo =
+      shadowVideo ??
+      (document.querySelector(
+        "video:not([data-vtp-viewer-backdrop-video])",
+      ) as HTMLVideoElement | null);
+    const nativePlayer = (sr?.querySelector("[data-vtp-viewer-player]") ??
+      document.querySelector("[data-vtp-viewer-player]")) as HTMLElement | null;
     const v = overlayVideo ?? sourceVideo;
-    const r = v?.getBoundingClientRect();
+    const r = (nativePlayer ?? v)?.getBoundingClientRect();
+    const videoRect = sourceVideo?.getBoundingClientRect();
     const barHost = (Array.from(overlay?.children ?? []) as HTMLElement[]).find((el) =>
       el.shadowRoot?.querySelector(".bar"),
     );
@@ -19,10 +29,16 @@ const state = (page: import("@playwright/test").Page) =>
       attr: document.documentElement.getAttribute("data-vtp-viewer"),
       overlay: !!overlay,
       videoInOverlay: !!overlayVideo,
-      videoInShadow: !!sourceVideo,
-      mirrored: !!overlayVideo && !!sourceVideo && overlayVideo !== sourceVideo,
+      videoInShadow: !!shadowVideo,
+      originalSurface:
+        !!nativePlayer || !!overlayVideo?.hasAttribute("data-vtp-viewer-adopted-video"),
+      nativePlayer: !!nativePlayer,
+      videoWidth: videoRect?.width ?? 0,
+      videoHeight: videoRect?.height ?? 0,
       bar: !!barHost?.shadowRoot?.querySelector(".bar"),
-      objectFit: overlayVideo?.style.objectFit || "",
+      objectFit: sourceVideo
+        ? getComputedStyle(sourceVideo).objectFit
+        : overlayVideo?.style.objectFit || "",
       theaterFits:
         !!r &&
         Math.round(r.left) === 0 &&
@@ -54,6 +70,38 @@ async function readyLiveWithQuality(page: import("@playwright/test").Page) {
   await page.waitForSelector("[data-vtp-badge]", { state: "attached" });
 }
 
+async function measureVideoCadence(
+  page: import("@playwright/test").Page,
+  durationMs = 1400,
+): Promise<{ frames: number; fps: number }> {
+  return page.evaluate(async (ms) => {
+    const video = document.querySelector("video") as HTMLVideoElement | null;
+    if (!video || typeof video.requestVideoFrameCallback !== "function") {
+      throw new Error("requestVideoFrameCallback unavailable");
+    }
+    await video.play();
+    return new Promise<{ frames: number; fps: number }>((resolve) => {
+      let frames = 0;
+      let done = false;
+      const started = performance.now();
+      const finish = () => {
+        if (done) return;
+        done = true;
+        const elapsed = Math.max(1, performance.now() - started);
+        resolve({ frames, fps: (frames * 1000) / elapsed });
+      };
+      const frame = (now: number) => {
+        if (done) return;
+        frames += 1;
+        if (now - started >= ms) finish();
+        else video.requestVideoFrameCallback(frame);
+      };
+      video.requestVideoFrameCallback(frame);
+      setTimeout(finish, ms + 300);
+    });
+  }, durationMs);
+}
+
 async function clickLauncherAction(
   page: import("@playwright/test").Page,
   name: string,
@@ -72,7 +120,7 @@ async function clickLauncherAction(
   await button.click();
 }
 
-test("T mirrors the shadow-DOM video into the overlay over the whole window", async ({ page }) => {
+test("T renders the original shadow-DOM video over the whole window", async ({ page }) => {
   await ready(page);
   await page.keyboard.press("KeyT");
   await expect
@@ -80,10 +128,11 @@ test("T mirrors the shadow-DOM video into the overlay over the whole window", as
     .toMatchObject({
       attr: "theater",
       overlay: true,
-      videoInOverlay: true,
+      videoInOverlay: false,
       videoInShadow: true,
-      mirrored: true,
-      bar: true,
+      originalSurface: true,
+      nativePlayer: true,
+      bar: false,
       theaterFits: true,
     });
 });
@@ -95,11 +144,37 @@ test("V uses the normal format — a centred box below viewport size", async ({ 
     .poll(() => state(page))
     .toMatchObject({
       attr: "normal",
-      videoInOverlay: true,
+      videoInOverlay: false,
       videoInShadow: true,
-      mirrored: true,
+      originalSurface: true,
+      nativePlayer: true,
       normalFits: true,
     });
+});
+
+test("V keeps the painted video non-zero inside YouTube's zero-height media wrapper", async ({
+  page,
+}) => {
+  await ready(page);
+  await page.evaluate(() => {
+    const player = document.getElementById("host")?.shadowRoot?.firstElementChild;
+    const video = player?.querySelector("video");
+    if (!(player instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+      throw new Error("viewer fixture player unavailable");
+    }
+    player.classList.add("html5-video-player");
+    const mediaContainer = document.createElement("div");
+    mediaContainer.className = "html5-video-container";
+    mediaContainer.style.cssText = "position:relative;width:100%;height:0";
+    video.replaceWith(mediaContainer);
+    mediaContainer.appendChild(video);
+  });
+
+  await page.keyboard.press("KeyV");
+  await expect.poll(() => state(page)).toMatchObject({ attr: "normal", nativePlayer: true });
+  const visible = await state(page);
+  expect(visible.videoWidth).toBeGreaterThan(100);
+  expect(visible.videoHeight).toBeGreaterThan(100);
 });
 
 test("Escape returns the video into the shadow root exactly", async ({ page }) => {
@@ -134,7 +209,7 @@ test("a stored auto-open mode opens the viewer when playback starts", async ({
   );
   await expect
     .poll(() => state(page))
-    .toMatchObject({ attr: "theater", overlay: true, mirrored: true, theaterFits: true });
+    .toMatchObject({ attr: "theater", overlay: true, originalSurface: true, theaterFits: true });
 });
 
 test("auto-open dismissal follows SPA media routes on a reused video element", async ({
@@ -173,7 +248,7 @@ test("auto-open dismissal follows SPA media routes on a reused video element", a
   await expect(page.locator("[data-vtp-viewer-overlay]")).toHaveCount(0);
 });
 
-test("a stored viewer fit mode is applied to the mirrored video", async ({
+test("a stored viewer fit mode is applied to the original video", async ({
   page,
   serviceWorker,
 }) => {
@@ -182,7 +257,50 @@ test("a stored viewer fit mode is applied to the mirrored video", async ({
   await page.keyboard.press("KeyV");
   await expect
     .poll(() => state(page))
-    .toMatchObject({ attr: "normal", mirrored: true, objectFit: "fill" });
+    .toMatchObject({ attr: "normal", originalSurface: true, objectFit: "fill" });
+});
+
+test("Viewer and Theater retain the original 30fps cadence without a capture mirror", async ({
+  page,
+  serviceWorker,
+}) => {
+  await setStorage(serviceWorker, { viewerBackdropVideo: false });
+  await page.goto("/viewer-performance.html");
+  await page.waitForSelector("[data-vtp-badge]", { state: "attached" });
+  await page.waitForFunction(() => {
+    const video = document.querySelector("video");
+    return !!video && !video.paused && video.readyState >= 2;
+  });
+
+  const baseline = await measureVideoCadence(page);
+  await page.keyboard.press("KeyV");
+  await expect.poll(() => state(page)).toMatchObject({ attr: "normal", nativePlayer: true });
+  const glassViewer = await measureVideoCadence(page);
+  await setStorage(serviceWorker, { viewerBackdropVideo: true });
+  await page
+    .locator("canvas[data-vtp-viewer-backdrop-video]")
+    .waitFor({ state: "attached", timeout: 5000 });
+  const videoBackdropViewer = await measureVideoCadence(page);
+  await page.keyboard.press("KeyT");
+  await expect.poll(() => state(page)).toMatchObject({ attr: "theater" });
+  const theater = await measureVideoCadence(page);
+
+  expect(baseline.frames).toBeGreaterThanOrEqual(25);
+  expect(glassViewer.fps).toBeGreaterThanOrEqual(baseline.fps * 0.7);
+  expect(videoBackdropViewer.fps).toBeGreaterThanOrEqual(baseline.fps * 0.7);
+  expect(theater.fps).toBeGreaterThanOrEqual(baseline.fps * 0.7);
+  const resourceState = await page.evaluate(() => {
+    const backdrop = document.querySelector(
+      "canvas[data-vtp-viewer-backdrop-video]",
+    ) as HTMLCanvasElement | null;
+    return {
+      captureCalls: Number(document.body.dataset.captureCalls || 0),
+      backdropWidth: backdrop?.width ?? 0,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(resourceState.captureCalls).toBe(0);
+  expect(resourceState.backdropWidth).toBeLessThan(resourceState.viewportWidth / 4);
 });
 
 test("the launcher exposes a clickable native Picture-in-Picture action", async ({
@@ -256,27 +374,65 @@ test("off launcher mode hides clicks while the keyboard popup still works", asyn
     .not.toBe("none");
 });
 
-test("the quality picker drives a generic HLS-like engine", async ({ page }) => {
+test("a launcher click paints the popup above the lifted native Viewer surface", async ({
+  page,
+  serviceWorker,
+}) => {
+  await setStorage(serviceWorker, { overlayButton: "always" });
   await ready(page);
-  await page.keyboard.press("KeyT");
-  await expect.poll(() => state(page)).toMatchObject({ attr: "theater" });
-  await page.mouse.move(400, 400); // wake the auto-hidden bar
-  await expect(page.locator("[data-vtp-viewer-overlay] .qwrap")).toHaveCount(2);
-  const qwrap = page.locator("[data-vtp-viewer-overlay] .qwrap").nth(0);
-  await expect(qwrap).toBeVisible();
-  await qwrap.locator("> button").click();
-  await expect(qwrap.locator(".qitem", { hasText: "720p" })).toBeVisible();
-  await qwrap.locator(".qitem", { hasText: "720p" }).click();
+  await page.keyboard.press("KeyV");
+  await expect.poll(() => state(page)).toMatchObject({ attr: "normal", nativePlayer: true });
+
+  await page.mouse.move(500, 250);
+  const launcher = page.locator("#vtp-launcher-host").locator("button").first();
+  await expect(launcher).toBeVisible();
+  await launcher.click();
+  await expect(launcher).toHaveAttribute("data-popup-open", "true");
+
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const v = document.getElementById("host")?.shadowRoot?.querySelector("video") as
-          | (HTMLVideoElement & { __vtpFakeHls?: { currentLevel: number } })
-          | null;
-        return v?.__vtpFakeHls?.currentLevel;
+        const host = document.querySelector("#vtp-launcher-host");
+        const iframe = host?.shadowRoot?.querySelector("iframe");
+        if (!(iframe instanceof HTMLIFrameElement)) return null;
+        const r = iframe.getBoundingClientRect();
+        const style = getComputedStyle(iframe);
+        return {
+          hostInTopLayer: host?.matches(":popover-open") ?? false,
+          width: r.width,
+          height: r.height,
+          display: style.display,
+          visibility: style.visibility,
+          opacity: Number(style.opacity),
+        };
       }),
     )
-    .toBe(1);
+    .toMatchObject({
+      hostInTopLayer: true,
+      display: "block",
+      visibility: "visible",
+      opacity: 1,
+    });
+  const box = await page.evaluate(() => {
+    const iframe = document
+      .querySelector("#vtp-launcher-host")
+      ?.shadowRoot?.querySelector("iframe");
+    const r = iframe?.getBoundingClientRect();
+    return { width: r?.width ?? 0, height: r?.height ?? 0 };
+  });
+  expect(box.width).toBeGreaterThan(300);
+  expect(box.height).toBeGreaterThan(200);
+  const popupFrame = page.frames().find((frame) => frame.url().includes("/popup/popup.html"));
+  expect(popupFrame).toBeTruthy();
+  await expect(popupFrame!.locator("body")).toBeVisible();
+});
+
+test("the lifted player keeps the site's native controls interactive", async ({ page }) => {
+  await ready(page);
+  await page.keyboard.press("KeyT");
+  await expect.poll(() => state(page)).toMatchObject({ attr: "theater", nativePlayer: true });
+  await page.locator("#native-control").click();
+  await expect.poll(() => page.evaluate(() => document.body.dataset.nativeControl)).toBe("clicked");
 });
 
 test("live viewer keeps a compact bar and compact quality label", async ({ page }) => {
@@ -397,7 +553,10 @@ test("viewer arrow keys seek and adjust volume on the real media element", async
   await page.keyboard.press("KeyV");
   await expect.poll(() => state(page)).toMatchObject({ attr: "normal" });
   await page.evaluate(async () => {
-    const video = document.getElementById("host")?.shadowRoot?.querySelector("video");
+    const video = (document.querySelector("[data-vtp-viewer-adopted-video]") ??
+      document
+        .getElementById("host")
+        ?.shadowRoot?.querySelector("video")) as HTMLVideoElement | null;
     if (!video) throw new Error("fixture video missing");
     video.pause();
     video.volume = 0.5;
@@ -414,20 +573,31 @@ test("viewer arrow keys seek and adjust volume on the real media element", async
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const video = document.getElementById("host")?.shadowRoot?.querySelector("video");
+        const video = (document.querySelector("[data-vtp-viewer-adopted-video]") ??
+          document
+            .getElementById("host")
+            ?.shadowRoot?.querySelector("video")) as HTMLVideoElement | null;
         return { currentTime: video?.currentTime ?? 0, volume: video?.volume ?? 0 };
       }),
     )
     .toMatchObject({ currentTime: expect.any(Number), volume: 0.55 });
   expect(
     await page.evaluate(
-      () => document.getElementById("host")?.shadowRoot?.querySelector("video")?.currentTime ?? 0,
+      () =>
+        (
+          (document.querySelector("[data-vtp-viewer-adopted-video]") ??
+            document
+              .getElementById("host")
+              ?.shadowRoot?.querySelector("video")) as HTMLVideoElement | null
+        )?.currentTime ?? 0,
     ),
   ).toBeLessThan(0.01);
 });
 
 test("buffering forces the hidden viewer bar and spinner back on", async ({ page }) => {
-  await ready(page);
+  // The shadow-player fixture takes the native-controls fast path. Use the
+  // bare live fixture here to exercise the custom-bar fallback explicitly.
+  await readyLiveWithQuality(page);
   await page.keyboard.press("KeyV");
   await expect.poll(() => state(page)).toMatchObject({ attr: "normal" });
 
@@ -441,7 +611,10 @@ test("buffering forces the hidden viewer bar and spinner back on", async ({ page
       bar.style.visibility = "hidden";
       bar.style.opacity = "0";
     }
-    const video = document.getElementById("host")?.shadowRoot?.querySelector("video");
+    const video = (document.querySelector("[data-vtp-viewer-adopted-video]") ??
+      document
+        .getElementById("host")
+        ?.shadowRoot?.querySelector("video")) as HTMLVideoElement | null;
     if (!video) throw new Error("fixture video missing");
     await video.play();
     video.dispatchEvent(new Event("waiting"));

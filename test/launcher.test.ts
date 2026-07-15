@@ -510,6 +510,37 @@ describe("launcher — open / close", () => {
     expect(S.overlayPanelPos).toBeNull();
     expect(get(["overlayPanelPos"]).overlayPanelPos).toBeUndefined();
   });
+
+  it("self-heals an off-screen saved panel position after the popup reports its real height", () => {
+    S.overlayButton = "always";
+    S.overlayPanelPos = { fx: 4, fy: -3 };
+    STORE.set({ overlayPanelPos: { localhost: S.overlayPanelPos } });
+    h.primary = fakeVideo();
+    updateLauncher();
+    const fab = fabEl()!;
+    fire(fab, "pointerdown", 580, 158);
+    fire(fab, "pointerup", 580, 158);
+    const popup = frameEl()!;
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "vtp-overlay", height: 600 },
+        source: popup.contentWindow,
+      }),
+    );
+
+    expect(Number.parseFloat(popup.style.left)).toBeGreaterThan(0);
+    expect(Number.parseFloat(popup.style.left)).toBeLessThan(window.innerWidth);
+    expect(Number.parseFloat(popup.style.top)).toBeGreaterThan(0);
+    expect(Number.parseFloat(popup.style.top)).toBeLessThan(window.innerHeight);
+    expect(S.overlayPanelPos?.fx).toBeGreaterThan(0);
+    expect(S.overlayPanelPos?.fx).toBeLessThanOrEqual(1);
+    expect(S.overlayPanelPos?.fy).toBeGreaterThan(0);
+    expect(S.overlayPanelPos?.fy).toBeLessThanOrEqual(1);
+    expect(get(["overlayPanelPos"]).overlayPanelPos).toMatchObject({
+      localhost: S.overlayPanelPos,
+    });
+  });
 });
 
 describe("launcher — radial viewer menu", () => {

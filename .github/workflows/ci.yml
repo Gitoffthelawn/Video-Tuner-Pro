@@ -39,6 +39,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Guard against focused tests
+        run: npm run test:guard
+
       - name: Format check (Prettier)
         run: npm run format:check
 
@@ -62,6 +65,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Guard against focused tests
+        run: npm run test:guard
 
       # Runs the suite AND enforces the coverage thresholds in vitest.config.ts —
       # the job fails if any metric drops below its floor.
@@ -124,6 +130,11 @@ jobs:
 
       - name: Build the extension and run the E2E suite
         run: npm run test:e2e
+
+      # The browser-driven suite exercises Chrome. Lint the Firefox artifact in
+      # the same job so a manifest/API regression cannot reach AMO unnoticed.
+      - name: Validate Firefox package
+        run: npx --yes web-ext@8.10.0 lint --source-dir dist/firefox
 
       # Render the E2E totals on the run/PR summary page (mirrors the unit job),
       # even when the suite fails.

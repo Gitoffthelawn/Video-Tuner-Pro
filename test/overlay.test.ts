@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // The draggable on-video badge: updateTimeBadge positions it (saved fraction or
@@ -128,7 +129,7 @@ describe("updateTimeBadge — visibility", () => {
     stale.setAttribute("data-vtp-badge", "");
     document.body.append(stale);
     h.primary = fakeVideo();
-    updateTimeBadge();
+    act(() => updateTimeBadge());
     const hosts = document.querySelectorAll("[data-vtp-badge]");
     expect(hosts.length).toBe(1);
     expect(hosts[0]).not.toBe(stale);
