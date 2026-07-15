@@ -95,6 +95,44 @@ let dragVideo: HTMLElement | null = null;
 let dragWasViewerOpen = false;
 let fabDragDrop: ((save?: boolean) => void) | null = null;
 let fabGlobalDragHooked = false;
+const NATIVE_VIEWER_SURFACE_ATTR = "data-vtp-viewer-player";
+const HOST_POPOVER_ATTR = "data-vtp-launcher-popover";
+
+type PopoverHost = HTMLDivElement & {
+  showPopover?: () => void;
+  hidePopover?: () => void;
+};
+
+function syncHostPopover(active: boolean): void {
+  const popoverHost = host as PopoverHost | null;
+  if (!popoverHost) return;
+  if (
+    typeof popoverHost.showPopover !== "function" ||
+    typeof popoverHost.hidePopover !== "function"
+  )
+    return;
+  let open = false;
+  try {
+    open = popoverHost.matches(":popover-open");
+  } catch {}
+  if (active) {
+    popoverHost.setAttribute("popover", "manual");
+    popoverHost.setAttribute(HOST_POPOVER_ATTR, "");
+    if (!open) {
+      try {
+        popoverHost.showPopover();
+      } catch {}
+    }
+  } else if (popoverHost.hasAttribute(HOST_POPOVER_ATTR)) {
+    if (open) {
+      try {
+        popoverHost.hidePopover();
+      } catch {}
+    }
+    popoverHost.removeAttribute(HOST_POPOVER_ATTR);
+    popoverHost.removeAttribute("popover");
+  }
+}
 
 function syncTopLayerAttr(): void {
   if (open || radialOpen) document.documentElement.setAttribute(LAUNCHER_TOP_LAYER_ATTR, "");
@@ -451,8 +489,41 @@ function layoutFrame(): void {
 function positionPanel(): void {
   if (!frame) return;
   const p = S.overlayPanelPos;
-  frame.style.left = p ? Math.round(p.fx * window.innerWidth) + "px" : "50%";
-  frame.style.top = p ? Math.round(p.fy * window.innerHeight) + "px" : "50%";
+  const fx = p && Number.isFinite(p.fx) ? p.fx : 0.5;
+  const fy = p && Number.isFinite(p.fy) ? p.fy : 0.5;
+  // Saved fractions can outlive a monitor/layout, and older versions could
+  // persist malformed values. Never trust them as coordinates: an off-screen
+  // iframe still leaves the launcher in its "open" state, which looks exactly
+  // like a dead popup to the user.
+  // Use layout dimensions, not getBoundingClientRect(): the opening animation
+  // temporarily reports a 0.9-scaled box. Clamping against that transient size
+  // leaves the final panel a few pixels outside the viewport once it reaches 1x.
+  const finalW = (frame.offsetWidth || POPUP_W + 2) * frameScale;
+  const finalH = (frame.offsetHeight || frameH + 2) * frameScale;
+  // Leave a one-pixel inset for transformed borders and compositor rounding;
+  // otherwise an edge-aligned panel can report a tiny negative/overflowing
+  // coordinate even when its layout dimensions are mathematically clamped.
+  const halfW = Math.min(window.innerWidth / 2, finalW / 2 + 1);
+  const halfH = Math.min(window.innerHeight / 2, finalH / 2 + 1);
+  const cx = Math.min(window.innerWidth - halfW, Math.max(halfW, fx * window.innerWidth));
+  const cy = Math.min(window.innerHeight - halfH, Math.max(halfH, fy * window.innerHeight));
+  // Preserve the clamped sub-pixel centre. Rounding an edge-aligned panel can
+  // move its transformed border fractionally outside a small viewport.
+  frame.style.left = cx + "px";
+  frame.style.top = cy + "px";
+
+  if (p) {
+    const healed = { fx: cx / window.innerWidth, fy: cy / window.innerHeight };
+    if (
+      !Number.isFinite(p.fx) ||
+      !Number.isFinite(p.fy) ||
+      Math.abs(healed.fx - p.fx) > 0.0001 ||
+      Math.abs(healed.fy - p.fy) > 0.0001
+    ) {
+      S.overlayPanelPos = healed;
+      savePanelPos(healed.fx, healed.fy);
+    }
+  }
 }
 
 function savePanelPos(fx: number, fy: number): void {
@@ -488,8 +559,8 @@ function panelDragMove(sx: number, sy: number): void {
   if (!frame) return;
   pdCx = Math.min(window.innerWidth - pdHW, Math.max(pdHW, pdCx0 + (sx - pdSX)));
   pdCy = Math.min(window.innerHeight - pdHH, Math.max(pdHH, pdCy0 + (sy - pdSY)));
-  frame.style.left = Math.round(pdCx) + "px";
-  frame.style.top = Math.round(pdCy) + "px";
+  frame.style.left = pdCx + "px";
+  frame.style.top = pdCy + "px";
 }
 
 function panelDragEnd(moved: boolean): void {
@@ -753,6 +824,11 @@ function mount(): void {
     top: "0",
     width: "0",
     height: "0",
+    margin: "0",
+    padding: "0",
+    border: "0",
+    overflow: "visible",
+    background: "transparent",
     zIndex: "2147483647",
   } as Partial<CSSStyleDeclaration>);
   host.style.setProperty("--glass-opacity", String(S.glassOpacity)); // scales the FAB glass
@@ -964,6 +1040,11 @@ function hookMouse(): void {
       else if (typeof d.height === "number" && d.height > 0) {
         frameH = Math.round(d.height);
         layoutFrame();
+        // The popup reports its real height after first paint. Re-clamp the
+        // saved centre against that final box; otherwise a position that was
+        // valid for FALLBACK_H can expand beyond the viewport while the button
+        // still reports the panel as open.
+        positionPanel();
       }
     },
     listenerOptions(),
@@ -1069,6 +1150,7 @@ export function updateLauncher(snapshot: { primary?: HTMLVideoElement | null } =
   }
   // No video to overlay → nothing can show; close any open popup and hide the FAB.
   if (!fabVideo) {
+    syncHostPopover(false);
     if (open) closePopup();
     hideFab();
     return;
@@ -1078,6 +1160,7 @@ export function updateLauncher(snapshot: { primary?: HTMLVideoElement | null } =
     // stays up (the hotkey is independent of the button). Keep its host attached to
     // the right parent (e.g. on entering fullscreen) and only hide the button.
     hideFab();
+    syncHostPopover(false);
     if (open && host) {
       const parent = fullscreenOverlayHost();
       if (host.parentNode !== parent) parent.appendChild(host);
@@ -1088,6 +1171,11 @@ export function updateLauncher(snapshot: { primary?: HTMLVideoElement | null } =
   hookMouse();
   const parent = fullscreenOverlayHost();
   if (host && host.parentNode !== parent) parent.appendChild(host);
+  syncHostPopover(
+    !!(
+      viewerAnchor as (HTMLElement & { hasAttribute?: (name: string) => boolean }) | null
+    )?.hasAttribute?.(NATIVE_VIEWER_SURFACE_ATTR),
+  );
   if (fabVideo && !dragging && (!paused || viewerAnchor)) positionFab(fabVideo);
   // The viewer can close behind our back (Esc, backdrop click) — refresh an
   // open menu so its pressed states and exit item stay honest.

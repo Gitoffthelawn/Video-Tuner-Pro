@@ -21,6 +21,9 @@ export const test = base.extend<{
         "--headless=new",
         `--disable-extensions-except=${pathToExtension}`,
         `--load-extension=${pathToExtension}`,
+        // Keep browser speakers silent during E2E. Web Audio still runs, so
+        // compressor/auto-slow assertions continue to inspect the real graph.
+        "--mute-audio",
         // Let media autoplay and the AudioContext start without a gesture so the
         // compressor graph can engage in headless.
         "--autoplay-policy=no-user-gesture-required",

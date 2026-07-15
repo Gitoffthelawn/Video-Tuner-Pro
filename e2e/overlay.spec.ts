@@ -44,12 +44,26 @@ async function showsPageThrough(page: Page): Promise<boolean> {
     width: 160,
     height: 36,
   };
-  await page.waitForTimeout(600);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const iframe = document
+          .querySelector("[data-vtp-launcher]")
+          ?.shadowRoot?.querySelector("iframe");
+        return (
+          iframe instanceof HTMLIFrameElement &&
+          iframe.getAnimations().every((animation) => animation.playState !== "running")
+        );
+      }),
+    )
+    .toBe(true);
   const a = await page.screenshot({ clip });
   await page.evaluate(() => {
     (document.getElementById("bg") as HTMLElement).style.background = "#cc0000";
+    return new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
   });
-  await page.waitForTimeout(300);
   const b = await page.screenshot({ clip });
   return Buffer.compare(a, b) !== 0; // recolouring the page changed the glass → transparent
 }
@@ -62,6 +76,98 @@ async function bodyIsDark(page: Page): Promise<boolean> {
 
 test.beforeEach(async ({ serviceWorker }) => {
   await clearStorage(serviceWorker);
+});
+
+test("a real launcher click paints a loaded popup panel with a non-zero box", async ({
+  page,
+  serviceWorker,
+}) => {
+  await setStorage(serviceWorker, {
+    overlayButton: "always",
+    // Simulate a stale/corrupt position from an older build or a differently
+    // sized display. The popup must self-heal into the current viewport.
+    overlayPanelPos: { localhost: { fx: 4, fy: -3 } },
+  });
+  await page.goto("/overlay.html");
+  await page.waitForSelector("[data-vtp-badge]", { state: "attached" });
+  await page.mouse.move(80, 45);
+
+  // Use a structural locator after the click: its accessible name intentionally
+  // changes from "Open" to "Close" when the popup opens.
+  const launcher = page.locator("#vtp-launcher-host").locator("button").first();
+  await expect(launcher).toBeVisible();
+  await launcher.click();
+  await expect(launcher).toHaveAttribute("data-popup-open", "true");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const iframe = document
+          .querySelector("[data-vtp-launcher]")
+          ?.shadowRoot?.querySelector("iframe");
+        if (!(iframe instanceof HTMLIFrameElement)) return null;
+        const r = iframe.getBoundingClientRect();
+        const style = getComputedStyle(iframe);
+        return {
+          x: r.x,
+          y: r.y,
+          width: r.width,
+          height: r.height,
+          display: style.display,
+          visibility: style.visibility,
+          opacity: Number(style.opacity),
+        };
+      }),
+    )
+    .toMatchObject({ display: "block", visibility: "visible", opacity: 1 });
+  const painted = await page.evaluate(() => {
+    const iframe = document
+      .querySelector("[data-vtp-launcher]")
+      ?.shadowRoot?.querySelector("iframe");
+    if (!(iframe instanceof HTMLIFrameElement)) return false;
+    const r = iframe.getBoundingClientRect();
+    return {
+      largeEnough: r.width > 300 && r.height > 200,
+      insideViewport:
+        r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight,
+      bounds: {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      },
+    };
+  });
+  expect(painted.largeEnough).toBe(true);
+  expect(painted.insideViewport, JSON.stringify(painted.bounds)).toBe(true);
+
+  await expect.poll(() => !!overlayFrame(page)).toBe(true);
+  await expect(overlayFrame(page)!.locator("body")).toBeVisible();
+
+  // A saved position must remain usable when the browser moves to a smaller
+  // monitor/window after the popup is already open.
+  await page.setViewportSize({ width: 820, height: 520 });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const iframe = document
+          .querySelector("[data-vtp-launcher]")
+          ?.shadowRoot?.querySelector("iframe");
+        if (!(iframe instanceof HTMLIFrameElement)) return false;
+        const r = iframe.getBoundingClientRect();
+        return (
+          r.width > 300 &&
+          r.height > 200 &&
+          r.left >= 0 &&
+          r.top >= 0 &&
+          r.right <= window.innerWidth &&
+          r.bottom <= window.innerHeight
+        );
+      }),
+    )
+    .toBe(true);
 });
 
 const HOSTS = [

@@ -17,6 +17,7 @@
     "format": "prettier --write \".github/**/*.yml\" \".storybook/**/*.{ts,tsx}\" \"e2e/**/*.{ts,mjs,html}\" \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\" \"tools/**/*.mjs\" \"*.{js,mjs,json,ts}\"",
     "format:check": "prettier --check \".github/**/*.yml\" \".storybook/**/*.{ts,tsx}\" \"e2e/**/*.{ts,mjs,html}\" \"src/**/*.{ts,tsx,css,html}\" \"test/**/*.ts\" \"tools/**/*.mjs\" \"*.{js,mjs,json,ts}\"",
     "test": "vitest run",
+    "test:guard": "node tools/check-tests.mjs",
     "test:watch": "vitest",
     "bench": "node tools/bench-dom.mjs",
     "test:coverage": "vitest run --coverage",

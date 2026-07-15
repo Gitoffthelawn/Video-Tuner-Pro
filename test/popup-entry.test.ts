@@ -1,0 +1,126 @@
+// @vitest-environment jsdom
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const fx = vi.hoisted(() => ({
+  initTheme: vi.fn(),
+  render: vi.fn(),
+  unmount: vi.fn(),
+  observe: vi.fn(),
+  postMessage: vi.fn(),
+}));
+
+vi.mock("react-dom/client", () => ({
+  createRoot: () => ({ render: fx.render, unmount: fx.unmount }),
+}));
+vi.mock("../src/popup/platform/storage.js", () => ({ whenReady: (fn: () => void) => fn() }));
+vi.mock("../src/popup/i18n.js", () => ({ loadLang: (fn: () => void) => fn() }));
+vi.mock("../src/shared/theme.js", () => ({ initTheme: fx.initTheme }));
+vi.mock("../src/popup/components/App.js", () => ({ App: () => null }));
+
+const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
+let popupModule: typeof import("../src/popup/index.js");
+
+function pointer(type: string, init: Record<string, unknown>): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  for (const [key, value] of Object.entries(init)) {
+    Object.defineProperty(event, key, { value, configurable: true });
+  }
+  return event;
+}
+
+beforeAll(async () => {
+  document.body.innerHTML =
+    '<div id="root"></div><div class="header"><span>Video Tuner</span></div>';
+  Object.defineProperty(document.documentElement, "scrollHeight", {
+    value: 540,
+    configurable: true,
+  });
+  Object.defineProperty(window, "parent", {
+    value: { postMessage: fx.postMessage },
+    configurable: true,
+  });
+  HTMLElement.prototype.setPointerCapture = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        fx.observe(target);
+        this.callback([], this as unknown as ResizeObserver);
+      }
+      disconnect() {}
+      unobserve() {}
+    },
+  );
+  popupModule = await import("../src/popup/index.js");
+});
+
+afterAll(() => {
+  popupModule.unmountPopupForTest();
+  if (parentDescriptor) Object.defineProperty(window, "parent", parentDescriptor);
+  vi.unstubAllGlobals();
+});
+
+describe("embedded popup entry wiring", () => {
+  it("boots after storage/language readiness and reports its initial height", () => {
+    expect(fx.initTheme).toHaveBeenCalledOnce();
+    expect(fx.render).toHaveBeenCalledOnce();
+    expect(document.documentElement.classList.contains("vtp-embedded")).toBe(true);
+    expect(fx.observe).toHaveBeenCalledWith(document.documentElement);
+    expect(fx.postMessage).toHaveBeenCalledWith({ type: "vtp-overlay", height: 540 }, "*");
+  });
+
+  it("forwards Escape to the launcher host", () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(fx.postMessage).toHaveBeenCalledWith({ type: "vtp-overlay", close: true }, "*");
+  });
+
+  it("posts drag movement, ignores sub-slop motion, and recognises a double click", () => {
+    const headerText = document.querySelector(".header span")!;
+    headerText.dispatchEvent(
+      pointer("pointerdown", { button: 0, pointerId: 7, screenX: 100, screenY: 200 }),
+    );
+    document.dispatchEvent(pointer("pointermove", { pointerId: 7, screenX: 102, screenY: 201 }));
+    document.dispatchEvent(pointer("pointermove", { pointerId: 7, screenX: 110, screenY: 220 }));
+    document.dispatchEvent(pointer("pointerup", { pointerId: 7 }));
+
+    expect(fx.postMessage).toHaveBeenCalledWith(
+      { type: "vtp-overlay", drag: "start", sx: 100, sy: 200 },
+      "*",
+    );
+    expect(fx.postMessage).toHaveBeenCalledWith(
+      { type: "vtp-overlay", drag: "move", sx: 110, sy: 220 },
+      "*",
+    );
+    expect(fx.postMessage).toHaveBeenCalledWith(
+      { type: "vtp-overlay", drag: "end", moved: true },
+      "*",
+    );
+
+    for (let i = 0; i < 2; i++) {
+      headerText.dispatchEvent(
+        pointer("pointerdown", { button: 0, pointerId: 8 + i, screenX: 40, screenY: 50 }),
+      );
+      document.dispatchEvent(pointer("pointerup", { pointerId: 8 + i }));
+    }
+    expect(fx.postMessage).toHaveBeenCalledWith({ type: "vtp-overlay", drag: "reset" }, "*");
+  });
+
+  it("ignores non-primary and interactive-header pointer starts", () => {
+    const before = fx.postMessage.mock.calls.length;
+    document.querySelector(".header")!.appendChild(document.createElement("button"));
+    document
+      .querySelector(".header button")!
+      .dispatchEvent(pointer("pointerdown", { button: 0, pointerId: 20 }));
+    document
+      .querySelector(".header span")!
+      .dispatchEvent(pointer("pointerdown", { button: 2, pointerId: 21 }));
+    expect(fx.postMessage.mock.calls.length).toBe(before);
+  });
+
+  it("exposes a deterministic unmount hook", () => {
+    popupModule.unmountPopupForTest();
+    popupModule.unmountPopupForTest();
+    expect(fx.unmount).toHaveBeenCalledOnce();
+  });
+});

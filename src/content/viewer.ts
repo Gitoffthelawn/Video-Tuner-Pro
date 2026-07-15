@@ -1,8 +1,7 @@
-// Pop-out video viewer. It prefers a non-invasive mirror: capture the page's
-// <video> into our own overlay video, while the original player stays in its
-// DOM. That avoids most framework/player fights during quality changes and SPA
-// layer swaps. If captureStream() is unavailable, it falls back to adopting the
-// bare <video> and restoring it on exit.
+// Pop-out video viewer. It moves the page's actual <video> into our overlay and
+// restores it on exit. Rendering the original element keeps the browser's native
+// video/audio clock intact; using captureStream() for the primary picture caused
+// visible frame drops and A/V drift on real players.
 import { S } from "./state.js";
 import { isDrmVideo, primaryVideo } from "./videos.js";
 import {
@@ -27,13 +26,22 @@ export const VIEWER_LAYOUT_EVENT = "vtp-viewer-layout";
 const ATTR = "data-vtp-viewer"; // on <html>: "normal" | "theater" — state marker
 const OVERLAY = "data-vtp-viewer-overlay";
 const ADOPTED_VIDEO = "data-vtp-viewer-adopted-video";
+const PLAYER_SURFACE = "data-vtp-viewer-player";
+const PLAYER_SURFACE_FORMAT = "data-vtp-viewer-player-format";
+const PLAYER_SURFACE_VIDEO = "data-vtp-viewer-player-video";
 const FRACTION = 0.86; // the normal box's share of the viewport
 const BAR_HIDE_MS = 2600; // control-bar auto-hide, mirrors the launcher FAB
 const CLOSE_EVENT = "vtp-viewer-close";
 const VIEWER_ANIM_MS = 420;
 const VIEWER_BACKDROP_VIDEO_ANIM_MS = 680;
-const BACKDROP_CANVAS_SCALE = 0.125;
-const BACKDROP_CANVAS_MS = 66;
+// The moving backdrop is blurred heavily, so full media cadence and resolution
+// only waste GPU/CPU time. Keep it deliberately coarse while the primary video
+// remains the original, full-rate media element.
+const BACKDROP_FPS = 10;
+const BACKDROP_CAPTURE_MAX_FPS = 15;
+const BACKDROP_CANVAS_SCALE = 0.1;
+const BACKDROP_CANVAS_MS = Math.round(1000 / BACKDROP_FPS);
+const BACKDROP_CANVAS_FILTER = "blur(3px) saturate(150%) brightness(72%) contrast(116%)";
 const NORMAL_BACKDROP_FILTER = "blur(28px) saturate(150%) brightness(0.72) contrast(1.16)";
 const NORMAL_SURFACE_SHADOW =
   "0 0 0 1px rgba(255,255,255,0.2)," +
@@ -70,14 +78,14 @@ let backdropEl: HTMLDivElement | null = null;
 let backdropVideo: HTMLVideoElement | HTMLCanvasElement | null = null;
 let backdropCanvasTimer: ReturnType<typeof setTimeout> | null = null;
 let surfaceShell: HTMLDivElement | null = null;
+let playerSurface: HTMLElement | null = null;
+let playerSurfaceStyle: HTMLStyleElement | null = null;
 let loadingEl: HTMLDivElement | null = null;
 let loadingShown = false;
 let holder: Comment | null = null; // marks the video's original DOM spot
 let sourceParent: Node | null = null;
 let sourceNextSibling: Node | null = null;
 let prevCss = ""; // the video's inline style before we took over
-let prevSourceVisibility = "";
-let prevSourceVisibilityPriority = "";
 let prevControls = false;
 let prevOverflow = ""; // <html>'s inline overflow (scroll lock restore)
 let hooked = false;
@@ -118,11 +126,16 @@ let surfaceTransition: Animation | null = null;
 let surfaceTransitionTimer: ReturnType<typeof setTimeout> | null = null;
 let postRestoreLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 let surfaceTransitionToken = 0;
-let mirrored = false;
-let mirrorStream: MediaStream | null = null;
+let backdropStream: MediaStream | null = null;
 let sourceRect: DOMRect | null = null;
 let layoutPaused = false;
 let exiting = false;
+// Some native players (notably YouTube) briefly pause when their existing
+// player root enters the browser's top layer. If playback was active before
+// opening the viewer, allow one short, one-shot resume during that transition;
+// never fight a later user pause.
+let resumeSurfacePlaybackUntil = 0;
+let resumeSurfacePlaybackUsed = false;
 
 let fitMenu: HTMLDivElement | null = null;
 let fitBtn: HTMLButtonElement | null = null;
@@ -322,6 +335,7 @@ export function setViewerState(format: ViewerFormat | "off", liveHint = false): 
 
 export function viewerAnchorVideo(): HTMLElement | null {
   if (!viewerFormat()) return null;
+  if (playerSurface?.isConnected) return playerSurface;
   if (surfaceShell?.isConnected) return surfaceShell;
   if (surfaceVideo?.isConnected) return surfaceVideo;
   const overlayEl = document.querySelector(`[${OVERLAY}]`);
@@ -330,6 +344,117 @@ export function viewerAnchorVideo(): HTMLElement | null {
       el instanceof HTMLElement && el.querySelector("video:not([data-vtp-viewer-backdrop-video])"),
   );
   return fallback instanceof HTMLElement ? fallback : null;
+}
+
+type PopoverPlayer = HTMLElement & {
+  showPopover?: () => void;
+  hidePopover?: () => void;
+};
+
+function playerSurfaceCandidate(v: HTMLVideoElement): PopoverPlayer | null {
+  const videoRect = v.getBoundingClientRect();
+  if (videoRect.width < 40 || videoRect.height < 40) return null;
+
+  // YouTube's player root owns its native controls and already responds to box
+  // resizes. For other sites, walk only within the video's current DOM root and
+  // pick the highest wrapper that still has player-like dimensions.
+  const youtube = v.closest(".html5-video-player");
+  let candidate = youtube instanceof HTMLElement ? youtube : null;
+  if (!candidate) {
+    let current = v.parentElement;
+    for (let depth = 0; current && depth < 8; depth++, current = current.parentElement) {
+      if (current === document.body || current === document.documentElement) break;
+      const rect = current.getBoundingClientRect();
+      const playerSized =
+        rect.width >= videoRect.width * 0.8 &&
+        rect.height >= videoRect.height * 0.8 &&
+        rect.width <= videoRect.width * 1.4 &&
+        rect.height <= videoRect.height * 1.6;
+      if (!playerSized) break;
+      candidate = current;
+    }
+  }
+  if (!candidate || candidate.hasAttribute("popover")) return null;
+  const popover = candidate as PopoverPlayer;
+  return typeof popover.showPopover === "function" && typeof popover.hidePopover === "function"
+    ? popover
+    : null;
+}
+
+function mountPlayerSurface(v: HTMLVideoElement): boolean {
+  const candidate = playerSurfaceCandidate(v);
+  if (!candidate) return false;
+  const root = candidate.getRootNode();
+  if (!(root instanceof Document || root instanceof ShadowRoot)) return false;
+
+  const style = document.createElement("style");
+  style.textContent =
+    `[${PLAYER_SURFACE}]:popover-open{display:block!important;position:fixed!important;` +
+    `box-sizing:border-box!important;margin:0!important;padding:0!important;border:0!important;` +
+    `max-width:none!important;max-height:none!important;overflow:hidden!important;background:#000!important}` +
+    `[${PLAYER_SURFACE}][${PLAYER_SURFACE_FORMAT}="theater"]:popover-open{` +
+    `inset:0!important;width:100vw!important;height:100vh!important;transform:none!important;` +
+    `border-radius:0!important;box-shadow:none!important}` +
+    `[${PLAYER_SURFACE}][${PLAYER_SURFACE_FORMAT}="normal"]:popover-open{` +
+    `inset:auto!important;left:50%!important;top:50%!important;` +
+    `width:var(--vtp-viewer-width)!important;height:var(--vtp-viewer-height)!important;` +
+    `transform:translate(-50%,-50%)!important;border-radius:12px!important;` +
+    `box-shadow:${NORMAL_SURFACE_SHADOW}!important}` +
+    `[${PLAYER_SURFACE}] [${PLAYER_SURFACE_VIDEO}]{position:absolute!important;inset:0!important;` +
+    `width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;` +
+    `display:block!important;visibility:visible!important;opacity:1!important;` +
+    `margin:0!important;padding:0!important;border:0!important;transform:none!important;` +
+    `object-fit:var(--vtp-viewer-fit)!important}` +
+    // YouTube keeps the video in a zero-height relative wrapper. Percentage
+    // heights on the video then resolve to zero after we resize the player
+    // popover, even though decoding continues and native controls remain. Size
+    // the media against the known surface box instead of its intermediate
+    // containing block so the painted frame cannot collapse.
+    `[${PLAYER_SURFACE}][${PLAYER_SURFACE_FORMAT}="normal"] [${PLAYER_SURFACE_VIDEO}]{` +
+    `width:var(--vtp-viewer-width)!important;height:var(--vtp-viewer-height)!important}` +
+    `[${PLAYER_SURFACE}][${PLAYER_SURFACE_FORMAT}="theater"] [${PLAYER_SURFACE_VIDEO}]{` +
+    `width:100vw!important;height:100vh!important}` +
+    `[${PLAYER_SURFACE}]::backdrop{background:transparent!important;pointer-events:none!important}`;
+  if (root instanceof Document) (root.head ?? root.documentElement).appendChild(style);
+  else root.appendChild(style);
+
+  candidate.setAttribute(PLAYER_SURFACE, "");
+  candidate.setAttribute("popover", "manual");
+  v.setAttribute(PLAYER_SURFACE_VIDEO, "");
+  try {
+    candidate.showPopover?.();
+    if (!candidate.matches(":popover-open")) throw new Error("player popover did not open");
+  } catch {
+    candidate.removeAttribute(PLAYER_SURFACE);
+    candidate.removeAttribute(PLAYER_SURFACE_FORMAT);
+    candidate.removeAttribute("popover");
+    v.removeAttribute(PLAYER_SURFACE_VIDEO);
+    style.remove();
+    return false;
+  }
+  playerSurface = candidate;
+  playerSurfaceStyle = style;
+  surfaceVideo = v;
+  return true;
+}
+
+function unmountPlayerSurface(): void {
+  const surface = playerSurface as PopoverPlayer | null;
+  if (surface) {
+    try {
+      if (surface.matches(":popover-open")) surface.hidePopover?.();
+    } catch {}
+    surface.removeAttribute(PLAYER_SURFACE);
+    surface.removeAttribute(PLAYER_SURFACE_FORMAT);
+    surface.removeAttribute("popover");
+    surface.style.removeProperty("--vtp-viewer-fit");
+    surface.style.removeProperty("--vtp-viewer-width");
+    surface.style.removeProperty("--vtp-viewer-height");
+  }
+  video?.removeAttribute(PLAYER_SURFACE_VIDEO);
+  playerSurfaceStyle?.remove();
+  playerSurfaceStyle = null;
+  playerSurface = null;
 }
 
 export function viewerLayoutPaused(): boolean {
@@ -360,7 +485,8 @@ function cancelPostRestoreLayout(): void {
 
 function applyOverlayBackdrop(): void {
   if (!backdropEl || !fmt) return;
-  if (fmt !== "normal" || !S.viewerBackdropVideo || !mirrorStream) removeBackdropVideo();
+  if (fmt === "normal" && S.viewerBackdropVideo) syncViewerBackdropVideo();
+  else removeBackdropVideo();
   backdropEl.style.setProperty("--glass-opacity", String(S.glassOpacity));
   if (fmt === "theater") {
     backdropEl.style.background = "rgba(0, 0, 0, 0.92)";
@@ -374,7 +500,7 @@ function applyOverlayBackdrop(): void {
       "radial-gradient(ellipse at center," +
       "rgb(8 8 10 / calc(0.08 * var(--glass-opacity,1))) 0%," +
       "rgb(2 2 4 / calc(0.5 * var(--glass-opacity,1))) 100%)";
-    if (S.viewerBackdropVideo && mirrorStream) {
+    if (S.viewerBackdropVideo && backdropVideo) {
       backdropEl.style.removeProperty("-webkit-backdrop-filter");
       backdropEl.style.backdropFilter = "";
     } else {
@@ -385,7 +511,6 @@ function applyOverlayBackdrop(): void {
       backdropEl.style.backdropFilter = "blur(14px) saturate(180%) brightness(1.04)";
     }
   }
-  syncViewerBackdropVideo();
 }
 
 export function refreshViewerBackdrop(): void {
@@ -403,6 +528,8 @@ function removeBackdropVideo(): void {
   }
   backdropVideo?.remove();
   backdropVideo = null;
+  backdropStream?.getTracks().forEach((track) => track.stop());
+  backdropStream = null;
 }
 
 function styleBackdropVideo(el: HTMLElement): void {
@@ -420,7 +547,10 @@ function styleBackdropVideo(el: HTMLElement): void {
     // More blur separates the duplicate image from the player. Contrast and
     // saturation retain colour in the backdrop; lower brightness leaves the
     // unfiltered primary video visually dominant.
-    filter: NORMAL_BACKDROP_FILTER,
+    // Blurring a viewport-sized layer on every canvas update stalls the primary
+    // video compositor on some GPUs. Canvas frames are pre-filtered at their tiny
+    // internal resolution; only the rare captureStream fallback needs CSS blur.
+    filter: el instanceof HTMLCanvasElement ? "none" : NORMAL_BACKDROP_FILTER,
     opacity: backdropEl?.style.opacity === "0" ? "0" : "1",
     pointerEvents: "none",
     willChange: "transform, opacity",
@@ -445,6 +575,9 @@ function drawBackdropCanvas(): boolean {
   if (backdropVideo.width !== w) backdropVideo.width = w;
   if (backdropVideo.height !== h) backdropVideo.height = h;
   try {
+    ctx.filter = BACKDROP_CANVAS_FILTER;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "low";
     ctx.drawImage(source, 0, 0, w, h);
     return true;
   } catch (e) {
@@ -482,9 +615,10 @@ document.addEventListener(
 );
 
 function createBackdropVideoFallback(): HTMLVideoElement | null {
-  if (!overlay || !backdropEl || !mirrorStream) return null;
+  const stream = ensureBackdropStream();
+  if (!overlay || !backdropEl || !stream) return null;
   const videoEl = document.createElement("video");
-  videoEl.srcObject = mirrorStream;
+  videoEl.srcObject = stream;
   videoEl.muted = true;
   videoEl.playsInline = true;
   videoEl.autoplay = true;
@@ -500,7 +634,7 @@ function createBackdropVideoFallback(): HTMLVideoElement | null {
 }
 
 export function syncViewerBackdropVideo(): void {
-  if (!overlay || !backdropEl || fmt !== "normal" || !S.viewerBackdropVideo || !mirrorStream) {
+  if (!overlay || !backdropEl || fmt !== "normal" || !S.viewerBackdropVideo) {
     removeBackdropVideo();
     return;
   }
@@ -511,6 +645,8 @@ export function syncViewerBackdropVideo(): void {
     styleBackdropVideo(canvas);
     backdropVideo = canvas;
     if (!drawBackdropCanvas()) {
+      canvas.remove();
+      backdropVideo = null;
       createBackdropVideoFallback();
     } else {
       overlay.insertBefore(canvas, backdropEl);
@@ -933,7 +1069,41 @@ export function setViewerFitMode(mode: unknown, notify = false): ViewerFitMode {
 function sizeVideo(): void {
   const surface = surfaceVideo ?? video;
   const shell = surfaceShell;
-  if (!fmt || !surface || !shell) return;
+  if (!fmt || !surface) return;
+  if (playerSurface) {
+    playerSurface.setAttribute(PLAYER_SURFACE_FORMAT, fmt);
+    playerSurface.style.setProperty("--vtp-viewer-fit", S.viewerFit);
+    if (fmt === "theater") {
+      normalBox = null;
+    } else {
+      const mediaWidth = surface.videoWidth || video?.videoWidth || 0;
+      const mediaHeight = surface.videoHeight || video?.videoHeight || 0;
+      const hasMetadata = !!(mediaWidth && mediaHeight);
+      const ar = hasMetadata ? mediaWidth / mediaHeight : 16 / 9;
+      const viewportChanged =
+        !normalBox || normalBox.vw !== window.innerWidth || normalBox.vh !== window.innerHeight;
+      const metadataArrived = !!normalBox && !normalBox.fromMetadata && hasMetadata;
+      if (viewportChanged || metadataArrived) {
+        const w = Math.round(
+          Math.min(window.innerWidth * FRACTION, window.innerHeight * FRACTION * ar),
+        );
+        normalBox = {
+          w,
+          h: Math.round(w / ar),
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+          fromMetadata: hasMetadata,
+        };
+      }
+      if (normalBox) {
+        playerSurface.style.setProperty("--vtp-viewer-width", `${normalBox.w}px`);
+        playerSurface.style.setProperty("--vtp-viewer-height", `${normalBox.h}px`);
+      }
+    }
+    layoutBar();
+    return;
+  }
+  if (!shell) return;
   const fit = `object-fit:${S.viewerFit} !important;`;
   surface.style.cssText =
     "position:absolute !important;inset:0 !important;" +
@@ -1059,6 +1229,15 @@ function showBar(): void {
 
 // Keep the bar's widgets honest against the media element's state.
 function syncPlay(): void {
+  if (
+    video?.paused &&
+    playerSurface &&
+    !resumeSurfacePlaybackUsed &&
+    Date.now() < resumeSurfacePlaybackUntil
+  ) {
+    resumeSurfacePlaybackUsed = true;
+    void video.play()?.catch(() => {});
+  }
   playBtn?.setAttribute("aria-pressed", video && !video.paused ? "true" : "false");
   if (video?.paused) {
     showBar();
@@ -1278,8 +1457,8 @@ function renderQuality(state: QualityState): void {
         current: opt.id,
         options: next.options.map((o) => ({ ...o, current: o.id === opt.id })),
       });
-      refreshMirrorStream();
-      sessionTimeout(() => refreshMirrorStream(), 700, session);
+      refreshBackdropStream();
+      sessionTimeout(() => refreshBackdropStream(), 700, session);
       sessionTimeout(() => refreshQuality(), 700, session);
     });
     item.addEventListener("keydown", (e) => handleMenuKey(e, qualityMenu, qualityBtn));
@@ -1775,13 +1954,20 @@ function sponsorBlockConsentGranted(): Promise<boolean> {
 // over; put everything back (or let it go) and close.
 function guard(): void {
   if (!fmt) return;
+  if (playerSurface) {
+    let open = false;
+    try {
+      open = playerSurface.matches(":popover-open");
+    } catch {}
+    if (!video?.isConnected || !overlay || !playerSurface.isConnected || !open) exitViewer();
+    return;
+  }
   if (
     !video ||
     !overlay ||
     !surfaceVideo?.isConnected ||
     !surfaceShell?.isConnected ||
-    (mirrored && !video.isConnected) ||
-    (!mirrored && video.parentElement !== surfaceShell) ||
+    video.parentElement !== surfaceShell ||
     (holder && !holder.isConnected)
   ) {
     exitViewer();
@@ -1835,17 +2021,23 @@ function wireVideo(v: HTMLVideoElement): void {
     },
     opt,
   );
-  surfaceVideo?.addEventListener(
-    "click",
-    () => (v.paused ? v.play()?.catch(() => {}) : v.pause()),
-    opt,
-  );
+  if (!playerSurface) {
+    surfaceVideo?.addEventListener(
+      "click",
+      () => (v.paused ? v.play()?.catch(() => {}) : v.pause()),
+      opt,
+    );
+  }
   for (const ev of ["waiting", "stalled"]) {
     v.addEventListener(ev, () => setViewerLoading(true), opt);
   }
   for (const ev of ["playing", "canplay", "canplaythrough", "timeupdate", "pause"]) {
     v.addEventListener(ev, () => setViewerLoading(false), opt);
   }
+  // A lifted player remains in its site-owned DOM with its own controls and
+  // resize logic. Do not fight the site's inline writes with the bare-video
+  // style guard used by the fallback surface.
+  if (playerSurface) return;
   styleGuard?.disconnect();
   if (styleGuardFrame != null) {
     cancelAnimationFrame(styleGuardFrame);
@@ -1874,63 +2066,42 @@ type CaptureVideo = HTMLVideoElement & {
   mozCaptureStream?: () => MediaStream;
 };
 
-function createMirror(v: HTMLVideoElement): HTMLVideoElement | null {
+function captureVideoStream(v: HTMLVideoElement): MediaStream | null {
   const capture = (v as CaptureVideo).captureStream ?? (v as CaptureVideo).mozCaptureStream;
   if (!capture) return null;
   try {
     const stream = capture.call(v);
     if (!stream || !stream.getVideoTracks().length) return null;
-    const mirror = document.createElement("video");
-    mirrorStream = stream;
-    mirror.srcObject = stream;
-    mirror.muted = true;
-    mirror.playsInline = true;
-    mirror.autoplay = true;
-    mirror.controls = false;
-    mirror.setAttribute("aria-hidden", "true");
-    mirror.play()?.catch(() => {});
-    return mirror;
+    // A captured fallback is decorative only. Drop its audio pipeline entirely
+    // and ask Blink/Gecko to cap frame production; unsupported constraints are
+    // harmless and the low-rate canvas remains the preferred path.
+    stream.getAudioTracks?.().forEach((track) => track.stop());
+    for (const track of stream.getVideoTracks()) {
+      void track
+        .applyConstraints?.({ frameRate: { ideal: BACKDROP_FPS, max: BACKDROP_CAPTURE_MAX_FPS } })
+        .catch(() => {});
+    }
+    return stream;
   } catch (e) {
     return null;
   }
 }
 
-function refreshMirrorStream(): void {
-  if (!mirrored || !video || !surfaceVideo) return;
-  const capture = (video as CaptureVideo).captureStream ?? (video as CaptureVideo).mozCaptureStream;
-  if (!capture) return;
-  try {
-    const stream = capture.call(video);
-    if (!stream || !stream.getVideoTracks().length) return;
-    mirrorStream?.getTracks().forEach((t) => t.stop());
-    mirrorStream = stream;
-    surfaceVideo.srcObject = stream;
-    if (backdropVideo instanceof HTMLVideoElement) backdropVideo.srcObject = stream;
-    else if (backdropVideo instanceof HTMLCanvasElement && !drawBackdropCanvas()) {
-      createBackdropVideoFallback();
-    }
-    surfaceVideo.play()?.catch(() => {});
-    if (backdropVideo instanceof HTMLVideoElement) backdropVideo.play()?.catch(() => {});
-    else scheduleBackdropCanvas();
-  } catch (e) {
-    /* keep the existing mirror */
-  }
+function ensureBackdropStream(): MediaStream | null {
+  if (backdropStream) return backdropStream;
+  if (!video) return null;
+  backdropStream = captureVideoStream(video);
+  return backdropStream;
 }
 
-function hideMirroredSource(v: HTMLVideoElement): void {
-  prevSourceVisibility = v.style.getPropertyValue("visibility");
-  prevSourceVisibilityPriority = v.style.getPropertyPriority("visibility");
-  v.style.setProperty("visibility", "hidden", "important");
-}
-
-function restoreMirroredSource(v: HTMLVideoElement): void {
-  if (prevSourceVisibility) {
-    v.style.setProperty("visibility", prevSourceVisibility, prevSourceVisibilityPriority);
-  } else {
-    v.style.removeProperty("visibility");
-  }
-  prevSourceVisibility = "";
-  prevSourceVisibilityPriority = "";
+function refreshBackdropStream(): void {
+  if (!video || !(backdropVideo instanceof HTMLVideoElement)) return;
+  const stream = captureVideoStream(video);
+  if (!stream) return;
+  backdropStream?.getTracks().forEach((track) => track.stop());
+  backdropStream = stream;
+  backdropVideo.srcObject = stream;
+  backdropVideo.play()?.catch(() => {});
 }
 
 // Auto-open on playback (the `viewerAuto` setting). Sites such as YouTube reuse
@@ -1967,6 +2138,18 @@ function rememberAutoOpen(t: HTMLVideoElement, identity: string): void {
   autoSeen.set(t, seen);
 }
 
+function autoOpenAllowedOnCurrentPage(): boolean {
+  const host = location.hostname.toLowerCase();
+  if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+    // YouTube's home, search, feed and channel pages autoplay sizeable hover
+    // previews. They are not playback pages and must never trigger an automatic
+    // Viewer. Do not mark the element as seen here: YouTube can reuse that same
+    // <video> after an SPA navigation to /watch.
+    return location.pathname === "/watch" || location.pathname.startsWith("/live/");
+  }
+  return true;
+}
+
 export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
   if (window.top !== window) return;
   // Our own mirror/backdrop videos live inside the overlay and are started
@@ -1974,13 +2157,39 @@ export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
   // viewer for the viewer's own media.
   if (t.closest(`[${OVERLAY}]`)) return;
   const identity = autoOpenIdentity();
+  if (!autoOpenAllowedOnCurrentPage()) return;
   if (!S.viewerAutoEnabled || S.viewerAuto === "off" || fmt || autoSeen.get(t)?.has(identity))
     return;
   const r = t.getBoundingClientRect();
   if (r.width < 200 || r.height < 112) return; // thumbnails/previews don't count
   rememberAutoOpen(t, identity);
-  void enter(S.viewerAuto, t, { mirrorOnly: true });
+  void enter(S.viewerAuto, t);
 }
+
+function maybeAutoOpenPlayingPrimary(): void {
+  if (!autoOpenAllowedOnCurrentPage()) return;
+  const t = primaryVideo();
+  // A YouTube hover preview can keep playing while the SPA changes `/` to
+  // `/watch`. No second `play` event is guaranteed, so re-evaluate the already
+  // playing primary video once navigation has committed. Never open a paused
+  // poster merely because the route changed.
+  if (!t || t.paused || t.ended) return;
+  maybeAutoOpenViewer(t);
+}
+
+// YouTube keeps the same document (and sometimes the same <video>) while
+// navigating from a home/feed preview to the actual watch page. Its
+// `yt-navigate-finish` event is the first reliable point where pathname and the
+// main player agree. Check immediately, then once more after the player has had
+// a frame to swap its preview surface for the watch surface.
+document.addEventListener(
+  "yt-navigate-finish",
+  () => {
+    maybeAutoOpenPlayingPrimary();
+    requestAnimationFrame(maybeAutoOpenPlayingPrimary);
+  },
+  listenerOptions(),
+);
 
 document.addEventListener(
   "play",
@@ -1995,18 +2204,18 @@ document.addEventListener(
 async function enter(
   format: ViewerFormat,
   target?: HTMLVideoElement,
-  opts: { mirrorOnly?: boolean; liveHint?: boolean } = {},
+  opts: { liveHint?: boolean } = {},
 ): Promise<void> {
   if (window.top !== window) return;
   const v = target ?? primaryVideo();
   if (!v || currentFullscreenElement() || fmt || exiting || overlay || isDrmVideo(v)) return;
+  const wasPlayingAtEntry = !v.paused && !v.ended;
   // A previous close schedules one delayed pass for site players that settle
   // asynchronously. Once a new viewer session starts that pass is stale: it
   // must not re-layout the launcher against the new surface.
   cancelPostRestoreLayout();
-  // Read this before createMirror()/DOM adoption: the site's player can clear
-  // its MSE timeline as soon as capture begins even though the page is still a
-  // confirmed live stream.
+  // Read this before DOM adoption: some site players temporarily clear their
+  // MSE timeline while responding to the move.
   const targetLive = isLive(v);
   const atEntryEdge = nearLiveEdge(v);
   let hasEntrySeekableWindow = false;
@@ -2029,8 +2238,6 @@ async function enter(
     (onStreamPage() && (atEntryEdge || entryTimelineUnavailable));
   liveAtViewerEntry = liveLayoutAtViewerEntry || targetLive;
   const firstRect = v.getBoundingClientRect();
-  const mirror = createMirror(v);
-  if (!mirror && opts.mirrorOnly) return;
   document.dispatchEvent(new Event(CLOSE_EVENT));
   fmt = format;
   video = v;
@@ -2038,16 +2245,17 @@ async function enter(
   surfaceVideo = null;
   backdropEl = null;
   surfaceShell = null;
-  mirrored = false;
-  if (!mirror) mirrorStream = null;
+  playerSurface = null;
+  playerSurfaceStyle = null;
+  backdropStream = null;
   viewerSession++;
+  resumeSurfacePlaybackUntil = wasPlayingAtEntry ? Date.now() + 1800 : 0;
+  resumeSurfacePlaybackUsed = false;
   sourceParent = null;
   sourceNextSibling = null;
   sourceRect = firstRect;
   normalBox = null;
   prevCss = v.style.cssText;
-  prevSourceVisibility = "";
-  prevSourceVisibilityPriority = "";
   prevControls = v.controls;
   overlay = document.createElement("div");
   overlay.setAttribute(OVERLAY, "");
@@ -2072,43 +2280,39 @@ async function enter(
     willChange: "opacity, backdrop-filter",
   } as Partial<CSSStyleDeclaration>);
   overlay.appendChild(backdropEl);
-  surfaceShell = document.createElement("div");
-  Object.assign(surfaceShell.style, {
-    position: "absolute",
-    overflow: "hidden",
-    zIndex: "1",
-    background: "#000",
-  } as Partial<CSSStyleDeclaration>);
-  overlay.appendChild(surfaceShell);
-  const loadingStyle = document.createElement("style");
-  loadingStyle.textContent =
-    `@keyframes vtp-viewer-spin{to{transform:rotate(360deg)}}` +
-    `[data-vtp-viewer-loading]{position:absolute;left:50%;top:50%;width:54px;height:54px;` +
-    `border-radius:999px;display:grid;place-items:center;pointer-events:none;z-index:4;` +
-    `opacity:0;transform:translate(-50%,-50%) scale(.92);transition:opacity .18s ease,` +
-    `transform .18s ease;background:rgb(20 20 22 / calc(0.34 * var(--glass-opacity,1)));` +
-    `box-shadow:0 0 0 1px rgba(255,255,255,.16),0 14px 36px rgba(0,0,0,.28);` +
-    `-webkit-backdrop-filter:${GLASS_REFRACTION}blur(8px) saturate(180%) brightness(1.04);` +
-    `backdrop-filter:${GLASS_REFRACTION}blur(8px) saturate(180%) brightness(1.04)}` +
-    `[data-vtp-viewer-loading]>i{width:24px;height:24px;border-radius:999px;` +
-    `border:3px solid rgba(255,255,255,.34);border-top-color:#fff;` +
-    `animation:vtp-viewer-spin .72s linear infinite}`;
-  loadingEl = document.createElement("div");
-  loadingEl.setAttribute("data-vtp-viewer-loading", "");
-  loadingEl.appendChild(document.createElement("i"));
-  loadingShown = false;
-  surfaceShell.append(loadingStyle, loadingEl);
   hookGlobal();
   // Chapters depend on the SITE player's UI, so read them before the video
   // leaves it.
   pendingChapters =
     isYouTube() && Number.isFinite(v.duration) ? readYouTubeChapters(v.duration) : [];
-  if (mirror) {
-    mirrored = true;
-    surfaceVideo = mirror;
-    hideMirroredSource(v);
-    surfaceShell.appendChild(mirror);
-  } else {
+  const keepsNativePlayer = mountPlayerSurface(v);
+  if (!keepsNativePlayer) {
+    surfaceShell = document.createElement("div");
+    Object.assign(surfaceShell.style, {
+      position: "absolute",
+      overflow: "hidden",
+      zIndex: "1",
+      background: "#000",
+    } as Partial<CSSStyleDeclaration>);
+    overlay.appendChild(surfaceShell);
+    const loadingStyle = document.createElement("style");
+    loadingStyle.textContent =
+      `@keyframes vtp-viewer-spin{to{transform:rotate(360deg)}}` +
+      `[data-vtp-viewer-loading]{position:absolute;left:50%;top:50%;width:54px;height:54px;` +
+      `border-radius:999px;display:grid;place-items:center;pointer-events:none;z-index:4;` +
+      `opacity:0;transform:translate(-50%,-50%) scale(.92);transition:opacity .18s ease,` +
+      `transform .18s ease;background:rgb(20 20 22 / calc(0.34 * var(--glass-opacity,1)));` +
+      `box-shadow:0 0 0 1px rgba(255,255,255,.16),0 14px 36px rgba(0,0,0,.28);` +
+      `-webkit-backdrop-filter:${GLASS_REFRACTION}blur(8px) saturate(180%) brightness(1.04);` +
+      `backdrop-filter:${GLASS_REFRACTION}blur(8px) saturate(180%) brightness(1.04)}` +
+      `[data-vtp-viewer-loading]>i{width:24px;height:24px;border-radius:999px;` +
+      `border:3px solid rgba(255,255,255,.34);border-top-color:#fff;` +
+      `animation:vtp-viewer-spin .72s linear infinite}`;
+    loadingEl = document.createElement("div");
+    loadingEl.setAttribute("data-vtp-viewer-loading", "");
+    loadingEl.appendChild(document.createElement("i"));
+    loadingShown = false;
+    surfaceShell.append(loadingStyle, loadingEl);
     sourceParent = v.parentNode;
     sourceNextSibling = v.nextSibling;
     holder = document.createComment("vtp-viewer-holder");
@@ -2117,8 +2321,8 @@ async function enter(
     v.setAttribute(ADOPTED_VIDEO, "");
     surfaceShell.appendChild(v);
     v.controls = false; // ours replace them; the site's flag is restored on exit
+    mountBar();
   }
-  mountBar();
   prevOverflow = document.documentElement.style.overflow;
   document.documentElement.style.overflow = "hidden";
   // Session-scoped wiring, all dropped at once on exit.
@@ -2160,7 +2364,7 @@ export function exitViewer(): void {
   // finish() below clears it once the video is truly back in its original spot.
   layoutPaused = true;
   const exitingOverlay = overlay;
-  const targetRect = mirrored && video ? video.getBoundingClientRect() : sourceRect;
+  const targetRect = sourceRect;
   const surfaceAnim = animateSurfaceTo(targetRect);
   const backdropAnim = animateBackdropOut(targetRect);
   const animated = !!surfaceAnim || !!backdropAnim;
@@ -2198,28 +2402,26 @@ export function exitViewer(): void {
       // Use the identity captured on entry. The URL may already point at the
       // next SPA video by the time the close animation finishes.
       rememberAutoOpen(video, videoAutoIdentity);
-      if (mirrored) {
-        restoreMirroredSource(video);
+      if (playerSurface) {
+        unmountPlayerSurface();
       } else {
         video.removeAttribute(ADOPTED_VIDEO);
         video.controls = prevControls;
         video.style.cssText = prevCss;
-      }
-      // Prefer the exact comment spot. If a site removed only that marker while
-      // keeping the original parent, fall back to the saved parent/sibling so
-      // closing the viewer does not discard the only page video with the overlay.
-      if (!mirrored && holder?.isConnected && video.parentElement === surfaceShell) {
-        holder.parentNode?.insertBefore(video, holder);
-      } else if (!mirrored && sourceParent?.isConnected && video.parentElement === surfaceShell) {
-        if (sourceNextSibling?.parentNode === sourceParent) {
-          sourceParent.insertBefore(video, sourceNextSibling);
-        } else {
-          sourceParent.appendChild(video);
+        // Prefer the exact comment spot. If a site removed only that marker while
+        // keeping the original parent, fall back to the saved parent/sibling so
+        // closing the viewer does not discard the only page video with the overlay.
+        if (holder?.isConnected && video.parentElement === surfaceShell) {
+          holder.parentNode?.insertBefore(video, holder);
+        } else if (sourceParent?.isConnected && video.parentElement === surfaceShell) {
+          if (sourceNextSibling?.parentNode === sourceParent) {
+            sourceParent.insertBefore(video, sourceNextSibling);
+          } else {
+            sourceParent.appendChild(video);
+          }
         }
       }
     }
-    mirrorStream?.getTracks().forEach((t) => t.stop());
-    mirrorStream = null;
     removeBackdropVideo();
     if (video && qualityVideoId) video.removeAttribute("data-vtp-quality-id");
     qualityVideoId = "";
@@ -2236,6 +2438,8 @@ export function exitViewer(): void {
     backdropEl = null;
     backdropVideo = null;
     surfaceShell = null;
+    playerSurface = null;
+    playerSurfaceStyle = null;
     loadingEl = null;
     loadingShown = false;
     bar = null;
@@ -2258,8 +2462,9 @@ export function exitViewer(): void {
     layoutPaused = false;
     exiting = false;
     viewerSession++;
+    resumeSurfacePlaybackUntil = 0;
+    resumeSurfacePlaybackUsed = false;
     surfaceVideo = null;
-    mirrored = false;
     liveAtViewerEntry = false;
     liveLayoutAtViewerEntry = false;
     video = null;

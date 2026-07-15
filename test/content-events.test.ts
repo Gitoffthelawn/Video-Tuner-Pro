@@ -18,7 +18,9 @@ const fx = vi.hoisted(() => ({
   audioSamplingReady: false,
   recordAudioSample: vi.fn(),
   autoSlowSample: vi.fn(),
+  ctxValid: true,
   addStorageListener: vi.fn(),
+  readyCallback: null as (() => void) | null,
   storageListener: null as
     | ((changes: Record<string, { newValue?: unknown }>, area: string) => void)
     | null,
@@ -45,7 +47,7 @@ vi.mock("../src/content/platform/browser.js", () => ({
       },
     },
   },
-  ctxValid: () => true,
+  ctxValid: () => fx.ctxValid,
 }));
 vi.mock("../src/content/platform/storage.js", () => ({
   STORE: {
@@ -54,7 +56,9 @@ vi.mock("../src/content/platform/storage.js", () => ({
     remove: vi.fn(),
   },
   OUR_AREAS: new Set(["sync", "local"]),
-  whenReady: vi.fn(),
+  whenReady: (fn: () => void) => {
+    fx.readyCallback = fn;
+  },
 }));
 vi.mock("../src/content/core/clamp.js", () => ({
   clamp: (n: number) => n,
@@ -63,10 +67,28 @@ vi.mock("../src/content/core/clamp.js", () => ({
 vi.mock("../src/content/core/domain.js", () => ({ getDomain: () => "example.com" }));
 vi.mock("../src/content/core/resolve.js", () => ({
   resolveSpeed: fx.resolveSpeed,
-  resolveSyncTarget: () => ({ target: 5, scope: "site" }),
-  resolveAutoSlow: () => ({ target: 6, scope: "site" }),
-  resolveViewerAuto: () => ({ mode: "off", scope: "site" }),
-  resolveViewerFit: () => ({ mode: "contain", scope: "site" }),
+  resolveSyncTarget: (
+    _keys: string[],
+    _domain: string,
+    _sites: Record<string, number>,
+    _channels: Record<string, number>,
+    global?: number,
+  ) => ({ target: global ?? 5, scope: global == null ? "site" : "global" }),
+  resolveAutoSlow: (
+    _keys: string[],
+    _domain: string,
+    sites: Record<string, { target: number }>,
+  ) => ({ target: sites["example.com"]?.target ?? 6, scope: "site" }),
+  resolveViewerAuto: (
+    _keys: string[],
+    _domain: string,
+    sites: Record<string, "off" | "normal" | "theater">,
+  ) => ({ mode: sites["example.com"] ?? "off", scope: "site" }),
+  resolveViewerFit: (
+    _keys: string[],
+    _domain: string,
+    sites: Record<string, "contain" | "cover" | "fill">,
+  ) => ({ mode: sites["example.com"] ?? "contain", scope: "site" }),
 }));
 vi.mock("../src/shared/presets.js", () => ({
   DEFAULT_PRESETS: [100],
@@ -177,11 +199,13 @@ beforeEach(() => {
   teardownIndex = null;
   document.documentElement.removeAttribute("data-vtp-quality-bridge-url");
   fx.onStream = false;
+  fx.ctxValid = true;
   fx.audioSamplingReady = false;
   fx.live = null;
   fx.keys = [];
   fx.videos = [];
   fx.storageListener = null;
+  fx.readyCallback = null;
   fx.resolveSpeed.mockImplementation(
     (
       keys: string[],
@@ -203,6 +227,39 @@ afterEach(() => {
 });
 
 describe("content media events", () => {
+  it("loads persisted scope settings before the first apply pass", async () => {
+    fx.keys = ["@creator"];
+    vi.mocked(STORE.get).mockImplementation((_keys, cb) => {
+      cb({
+        domains: { "example.com": 1.25 },
+        channels: { "@creator": 1.75 },
+        globalSpeed: 1.1,
+        liveSync: false,
+        liveSyncTarget: 9,
+        autoSlowSites: { "example.com": { target: 7 } },
+        viewerAutoSites: { "example.com": "theater" },
+        viewerFitSites: { "example.com": "cover" },
+      });
+    });
+
+    await loadIndex();
+    fx.readyCallback?.();
+    const { S } = await import("../src/content/state.js");
+
+    expect(S.currentSpeed).toBe(1.75);
+    expect(S.userSpeed).toBe(1.75);
+    expect(S.speedScope).toBe("channel");
+    expect(S.liveSyncEnabled).toBe(false);
+    expect(S.liveSyncTarget).toBe(9);
+    expect(S.autoSlowTarget).toBe(7);
+    expect(S.viewerAuto).toBe("theater");
+    expect(S.viewerFit).toBe("cover");
+    expect(fx.applyAll).toHaveBeenCalled();
+    expect(fx.controlLive).toHaveBeenCalled();
+    expect(fx.updateTimeBadge).toHaveBeenCalled();
+    expect(fx.updateLauncher).toHaveBeenCalled();
+  });
+
   it("publishes the MAIN-world quality bridge URL for the lazy loader", async () => {
     await loadIndex();
 
@@ -292,6 +349,15 @@ describe("content media events", () => {
 });
 
 describe("content graph samplers", () => {
+  it("tears down the orphaned context on the next background tick", async () => {
+    await loadIndex();
+    fx.ctxValid = false;
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(fx.stopTracking).toHaveBeenCalledTimes(1);
+  });
+
   it("passes one media snapshot through the background tick", async () => {
     const v = media(false);
     fx.videos = [v];

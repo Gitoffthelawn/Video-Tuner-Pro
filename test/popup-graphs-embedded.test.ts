@@ -135,6 +135,105 @@ describe("graph polling under the Firefox overlay", () => {
     expect(g.histSeeded).toBe(true);
     expect(g.audioHist.length).toBeGreaterThan(0);
   });
+
+  it("folds audio, auto-slow, live-buffer and all history series into graph state", async () => {
+    const translating = vi.fn();
+    const blocked = vi.fn();
+    embed({
+      getMonitor: {
+        audio: {
+          active: true,
+          enabled: true,
+          knee: 18,
+          translation: true,
+          blocked: "capture-denied",
+          in: -12,
+          out: -20,
+        },
+        autoSlow: { active: true, enabled: true, target: 7, rate: 10, speed: 1.25 },
+        live: true,
+        buffer: 11,
+        bufferAhead: 6,
+        bitrate: 2_000_000,
+        bufLimited: true,
+      },
+      getHistory: {
+        autoSlow: [
+          [8, 1.4],
+          [10, 1.25],
+        ],
+        autoSlowStep: 100,
+        audio: [
+          [-20, -24],
+          [-12, -20],
+        ],
+        audioStep: 150,
+        buffer: [
+          [500, 9, 5],
+          [0, 11, 6],
+        ],
+      },
+    });
+    vi.resetModules();
+    vi.useFakeTimers();
+    const { startPoll } = await import("../src/popup/graphs/poll.js");
+    const g = await makeState();
+
+    const stop = startPoll(g, () => 42, translating, blocked);
+    await vi.advanceTimersByTimeAsync(160);
+    stop();
+
+    expect(translating).toHaveBeenCalledWith(true);
+    expect(blocked).toHaveBeenCalledWith("capture-denied");
+    expect(g.knee).toBe(18);
+    expect(g.cur).toEqual({ in: -12, out: -20 });
+    expect(g.asEnabled).toBe(true);
+    expect(g.asTargetLine).toBe(7);
+    expect(g.asHist).toHaveLength(2);
+    expect(g.audioHist).toHaveLength(2);
+    expect(g.bufHist).toHaveLength(2);
+    expect(g.bufAhead).toBe(6);
+    expect(g.bufBitrate).toBe(2_000_000);
+    expect(g.bufLimited).toBe(true);
+  });
+
+  it("backs off without messaging when the host tab is temporarily unknown", async () => {
+    const sent = embed({});
+    vi.resetModules();
+    vi.useFakeTimers();
+    const { startPoll } = await import("../src/popup/graphs/poll.js");
+    const g = await makeState();
+
+    const stop = startPoll(
+      g,
+      () => null,
+      () => {},
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(1100);
+    stop();
+
+    expect(sent).toEqual([]);
+  });
+
+  it("clears transient audio warnings when the content script gives no response", async () => {
+    const translating = vi.fn();
+    const blocked = vi.fn();
+    embed({ getMonitor: undefined });
+    vi.resetModules();
+    vi.useFakeTimers();
+    const { startPoll } = await import("../src/popup/graphs/poll.js");
+    const g = await makeState();
+    g.audioActive = true;
+
+    const stop = startPoll(g, () => 42, translating, blocked);
+    await vi.advanceTimersByTimeAsync(80);
+    stop();
+
+    expect(g.audioActive).toBe(false);
+    expect(translating).toHaveBeenCalledWith(false);
+    expect(blocked).toHaveBeenCalledWith(null);
+  });
 });
 
 describe("graph polling in the toolbar popup (Chrome / non-embedded)", () => {

@@ -4,6 +4,7 @@
 // in jsdom and asserting the chrome.storage the popup + content script read back.
 // These were previously only smoke-tested; this exercises the handler branches
 // (clamps, dedup rejection, add/remove limits, pin limits, reset, gain override).
+import { act } from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   mountOptions,
@@ -178,6 +179,27 @@ describe("Options · General", () => {
   });
 });
 
+describe("Options · Live sync", () => {
+  it("clamps the stored reserve and persists Home/End slider commits", async () => {
+    const { get } = await mountOptions({ liveSyncBufferReserve: 99 });
+    await settle();
+
+    const root = byId("liveSyncBufferReserve");
+    const value = root.closest(".opt-param")?.querySelector<HTMLElement>(".opt-param-val");
+    const thumb = root.querySelector<HTMLElement>('[role="slider"]')!;
+    expect(value?.textContent).toBe("10.0 s");
+    expect(thumb.getAttribute("aria-valuenow")).toBe("10");
+
+    sliderKey(thumb, "Home");
+    await flush();
+    expect(get(["liveSyncBufferReserve"]).liveSyncBufferReserve).toBe(1);
+
+    sliderKey(thumb, "End");
+    await flush();
+    expect(get(["liveSyncBufferReserve"]).liveSyncBufferReserve).toBe(10);
+  });
+});
+
 describe("Options · Keys", () => {
   it("captures a new key and reflects it on the button", async () => {
     const { get } = await mountOptions({});
@@ -249,7 +271,9 @@ describe("Options · Keys", () => {
   it("tracks external keymap changes before saving another action", async () => {
     const { get } = await mountOptions({});
 
-    chrome.storage.local.set({ keymap: { slower: "KeyJ", faster: "KeyD" } });
+    act(() => {
+      chrome.storage.local.set({ keymap: { slower: "KeyJ", faster: "KeyD" } });
+    });
     await flush();
     expect(byId("keySlower").textContent).toBe("J");
 

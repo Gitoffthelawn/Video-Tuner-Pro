@@ -215,6 +215,21 @@ describe("media registry — incremental tracking", () => {
     expect(collectVideos()).toHaveLength(0);
   });
 
+  it("keeps the original video tracked while Viewer temporarily adopts it", () => {
+    const video = document.createElement("video");
+    document.body.appendChild(video);
+    const overlay = document.createElement("div");
+    document.body.appendChild(overlay);
+    track((n) => n === overlay || overlay.contains(n));
+    expect(collectVideos()).toContain(video);
+
+    video.setAttribute("data-vtp-viewer-adopted-video", "");
+    overlay.appendChild(video);
+
+    expect(collectVideos()).toContain(video);
+    expect(hasVideos()).toBe(true);
+  });
+
   it("tracks <audio> too", async () => {
     track();
     const a = document.createElement("audio");

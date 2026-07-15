@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Slider } from "../src/ui/Slider.js";
 import { Switch } from "../src/ui/Switch.js";
+import { Segmented } from "../src/ui/Segmented.js";
+import { Tooltip } from "../src/ui/Tooltip.js";
 
 let root: Root | null = null;
 
@@ -18,6 +20,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 function pointer(type: string, init: Record<string, unknown> = {}): Event {
@@ -136,5 +140,149 @@ describe("Switch", () => {
 
     expect(changes).toEqual([true, false]);
     expect(sw.getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Segmented", () => {
+  it("changes selection by click and wrapped arrow-key navigation", () => {
+    const changes: string[] = [];
+    Object.defineProperties(HTMLElement.prototype, {
+      offsetWidth: { get: () => 80, configurable: true },
+      offsetHeight: { get: () => 30, configurable: true },
+      offsetLeft: {
+        get(this: HTMLElement) {
+          return Array.from(this.parentElement?.children ?? []).indexOf(this) * 80;
+        },
+        configurable: true,
+      },
+      offsetTop: { get: () => 0, configurable: true },
+    });
+    function Harness() {
+      const [value, setValue] = useState("one");
+      return createElement(Segmented, {
+        items: [
+          { value: "one", label: "One" },
+          { value: "two", label: "Two" },
+          { value: "three", label: "Three" },
+        ],
+        value,
+        ariaLabel: "Mode",
+        onChange: (next: string) => {
+          changes.push(next);
+          setValue(next);
+        },
+      });
+    }
+    act(() => root!.render(createElement(Harness)));
+    const group = document.querySelector<HTMLElement>('[role="radiogroup"]')!;
+    expect(group.classList.contains("has-pill")).toBe(true);
+
+    act(() => document.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1].click());
+    expect(changes).toEqual(["two"]);
+
+    act(() =>
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })),
+    );
+    expect(changes).toEqual(["two", "one"]);
+
+    act(() =>
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })),
+    );
+    expect(changes).toEqual(["two", "one", "three"]);
+  });
+
+  it("does not change while disabled", () => {
+    const onChange = vi.fn();
+    act(() =>
+      root!.render(
+        createElement(Segmented, {
+          items: [
+            { value: "one", label: "One" },
+            { value: "two", label: "Two" },
+          ],
+          value: "one",
+          ariaLabel: "Mode",
+          disabled: true,
+          onChange,
+        }),
+      ),
+    );
+    const group = document.querySelector<HTMLElement>('[role="radiogroup"]')!;
+    act(() => {
+      document.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1].click();
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(group.classList.contains("is-disabled")).toBe(true);
+  });
+});
+
+describe("Tooltip", () => {
+  it("opens on hover, associates accessible content, repositions, and closes on Escape", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.classList.contains("tip")) return { ...({} as DOMRect), width: 120, height: 30 };
+      return {
+        ...({} as DOMRect),
+        top: 4,
+        bottom: 24,
+        left: 20,
+        right: 60,
+        width: 40,
+        height: 20,
+      };
+    });
+    act(() =>
+      root!.render(
+        createElement(Tooltip, {
+          trigger: createElement("button", { id: "tip-trigger" }, "Help"),
+          content: "Useful explanation",
+          bubbleClassName: "warn",
+        }),
+      ),
+    );
+    const trigger = document.getElementById("tip-trigger")!;
+    act(() => trigger.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+
+    const tip = document.querySelector<HTMLElement>('[role="tooltip"]')!;
+    expect(tip.textContent).toBe("Useful explanation");
+    expect(tip.classList.contains("warn")).toBe(true);
+    expect(trigger.getAttribute("aria-describedby")).toBe(tip.id);
+    expect(tip.style.top).toBe("32px");
+
+    act(() => window.dispatchEvent(new Event("resize")));
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("opens on focus, flips a bottom tooltip upward, and closes on blur", () => {
+    Object.defineProperty(window, "innerHeight", { value: 100, configurable: true });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.classList.contains("tip")) return { ...({} as DOMRect), width: 100, height: 30 };
+      return {
+        ...({} as DOMRect),
+        top: 70,
+        bottom: 90,
+        left: 10,
+        right: 50,
+        width: 40,
+        height: 20,
+      };
+    });
+    act(() =>
+      root!.render(
+        createElement(Tooltip, {
+          trigger: createElement("button", { id: "focus-trigger" }, "Help"),
+          content: "Bottom tip",
+          side: "bottom",
+        }),
+      ),
+    );
+    const trigger = document.getElementById("focus-trigger")!;
+    act(() => trigger.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+    expect(document.querySelector<HTMLElement>('[role="tooltip"]')?.style.top).toBe("32px");
+
+    act(() => trigger.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 });

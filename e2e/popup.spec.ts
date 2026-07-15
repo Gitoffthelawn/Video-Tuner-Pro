@@ -109,6 +109,47 @@ test("the popup reflects a custom max-speed from options", async ({ page, servic
   await expect.poll(() => rate(page)).toBeCloseTo(3.0, 2);
 });
 
+test("the expanded popup keeps a four-digit preset centered and inside its cell", async ({
+  page,
+  serviceWorker,
+}) => {
+  await setStorage(serviceWorker, { overlayButton: "always" });
+  const popup = await openPopup(page);
+  await popup.locator(".speed-section .sec-main").click();
+
+  const preset = popup.locator('.btn-speed[data-percent="1600"]');
+  await expect(preset).toBeVisible();
+  const fit = await preset.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d")!;
+    context.font = style.font;
+    const textWidth = context.measureText(button.textContent || "").width;
+    const r = button.getBoundingClientRect();
+    const grid = button.closest(".presetgrid")!.getBoundingClientRect();
+    return {
+      textWidth,
+      available:
+        button.clientWidth -
+        Number.parseFloat(style.paddingLeft) -
+        Number.parseFloat(style.paddingRight),
+      textAlign: style.textAlign,
+      width: r.width,
+      height: r.height,
+      insideGrid:
+        r.left >= grid.left &&
+        r.right <= grid.right &&
+        r.top >= grid.top &&
+        r.bottom <= grid.bottom,
+    };
+  });
+  expect(fit.width).toBeGreaterThan(0);
+  expect(fit.height).toBeGreaterThan(0);
+  expect(fit.available).toBeGreaterThan(fit.textWidth + 1);
+  expect(fit.textAlign).toBe("center");
+  expect(fit.insideGrid).toBe(true);
+});
+
 test("expanded speed settings toggle and persist through real popup clicks", async ({
   page,
   serviceWorker,

@@ -79,6 +79,38 @@ describe("viewer auto persistence", () => {
     expect(get(["viewerAutoGlobal"]).viewerAutoGlobal).toBe("normal");
     expect(get(["viewerAuto"]).viewerAuto).toBeUndefined();
   });
+
+  it("reports failure without touching storage when the extension context is gone", () => {
+    const savedId = globalThis.chrome.runtime.id;
+    (globalThis.chrome.runtime as { id?: unknown }).id = undefined;
+    const done = vi.fn();
+    try {
+      persistSiteViewerAuto("normal", done);
+      persistChannelViewerAuto("normal", done);
+      persistGlobalViewerAuto("normal", done);
+      expect(done).toHaveBeenCalledTimes(3);
+      expect(done).toHaveBeenNthCalledWith(1, false);
+      expect(done).toHaveBeenNthCalledWith(2, false);
+      expect(done).toHaveBeenNthCalledWith(3, false);
+      expect(sites()).toEqual({});
+      expect(channels()).toEqual({});
+    } finally {
+      (globalThis.chrome.runtime as { id?: unknown }).id = savedId;
+    }
+  });
+
+  it("rejects a channel save and an unknown reset scope without a channel identity", () => {
+    const done = vi.fn();
+    persistChannelViewerAuto("theater", done);
+    resetViewerAutoScope("channel", done);
+    resetViewerAutoScope("unknown" as never, done);
+
+    expect(done).toHaveBeenCalledTimes(3);
+    expect(done).toHaveBeenNthCalledWith(1, false);
+    expect(done).toHaveBeenNthCalledWith(2, false);
+    expect(done).toHaveBeenNthCalledWith(3, false);
+    expect(channels()).toEqual({});
+  });
 });
 
 describe("applyResolvedViewerAutoFromStore", () => {

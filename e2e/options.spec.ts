@@ -192,10 +192,25 @@ test.describe("Options · Speed presets", () => {
         (input as HTMLInputElement).clientWidth -
         Number.parseFloat(style.paddingLeft) -
         Number.parseFloat(style.paddingRight);
-      return { textWidth, available, textAlign: style.textAlign };
+      const inputRect = input.getBoundingClientRect();
+      const rowRect = input.closest(".preset-row")!.getBoundingClientRect();
+      const gridRect = input.closest(".preset-rows")!.getBoundingClientRect();
+      return {
+        textWidth,
+        available,
+        textAlign: style.textAlign,
+        width: inputRect.width,
+        height: inputRect.height,
+        insideRow: inputRect.left >= rowRect.left && inputRect.right <= rowRect.right,
+        insideGrid: inputRect.left >= gridRect.left && inputRect.right <= gridRect.right,
+      };
     });
+    expect(fit.width).toBeGreaterThan(0);
+    expect(fit.height).toBeGreaterThan(0);
     expect(fit.available).toBeGreaterThan(fit.textWidth + 2);
     expect(fit.textAlign).toBe("center");
+    expect(fit.insideRow).toBe(true);
+    expect(fit.insideGrid).toBe(true);
   });
 });
 

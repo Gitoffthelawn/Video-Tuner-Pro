@@ -66,7 +66,7 @@
       const host = document.getElementById("host");
       const sr = host.attachShadow({ mode: "open" });
       const inner = document.createElement("div");
-      inner.style.cssText = "width:660px;height:370px";
+      inner.style.cssText = "position:relative;width:660px;height:370px";
       const v = document.createElement("video");
       v.src = "sample.webm";
       v.setAttribute("playsinline", "");
@@ -83,7 +83,15 @@
         ],
       };
       v.hls = v.__vtpFakeHls;
-      inner.appendChild(v);
+      const nativeControl = document.createElement("button");
+      nativeControl.id = "native-control";
+      nativeControl.textContent = "Native control";
+      nativeControl.style.cssText =
+        "position:absolute;right:16px;bottom:16px;z-index:3;padding:8px 12px";
+      nativeControl.addEventListener("click", () => {
+        document.body.dataset.nativeControl = "clicked";
+      });
+      inner.append(v, nativeControl);
       sr.appendChild(inner);
     </script>
   </body>
