@@ -34,6 +34,19 @@ const BAR_HIDE_MS = 2600; // control-bar auto-hide, mirrors the launcher FAB
 const CLOSE_EVENT = "vtp-viewer-close";
 const VIEWER_ANIM_MS = 420;
 const VIEWER_BACKDROP_VIDEO_ANIM_MS = 680;
+const VIEWER_PLAYBACK_ANIM_MS = 300;
+const VIEWER_PLAYBACK_BACKDROP_VIDEO_ANIM_MS = 480;
+const VIEWER_PLAYBACK_STABLE_MS = 250;
+
+function viewerAnimationMs(): number {
+  return autoOpenedSession && S.viewerAutoPlaybackOnly ? VIEWER_PLAYBACK_ANIM_MS : VIEWER_ANIM_MS;
+}
+
+function viewerBackdropVideoAnimationMs(): number {
+  return autoOpenedSession && S.viewerAutoPlaybackOnly
+    ? VIEWER_PLAYBACK_BACKDROP_VIDEO_ANIM_MS
+    : VIEWER_BACKDROP_VIDEO_ANIM_MS;
+}
 // The moving backdrop is blurred heavily, so full media cadence and resolution
 // only waste GPU/CPU time. Keep it deliberately coarse while the primary video
 // remains the original, full-rate media element.
@@ -62,6 +75,8 @@ const Z_OVERLAY = "2147483643";
 let fmt: ViewerFormat | null = null;
 let video: HTMLVideoElement | null = null; // the page media element we control
 let videoAutoIdentity = ""; // route/media identity captured when this viewer session opened
+let playbackFollowArmTimer: ReturnType<typeof setTimeout> | null = null;
+let playbackFollowArmed = false;
 // Capture the page-level verdict before Viewer hides/adopts the source. Some
 // MSE players (VK Video Live in particular) temporarily drop duration and
 // seekable ranges while captureStream() is attached, which otherwise turns a
@@ -80,6 +95,8 @@ let backdropCanvasTimer: ReturnType<typeof setTimeout> | null = null;
 let surfaceShell: HTMLDivElement | null = null;
 let playerSurface: HTMLElement | null = null;
 let playerSurfaceStyle: HTMLStyleElement | null = null;
+let playerSurfaceToggle: ((e: Event) => void) | null = null;
+let playerSurfaceObserver: MutationObserver | null = null;
 let loadingEl: HTMLDivElement | null = null;
 let loadingShown = false;
 let holder: Comment | null = null; // marks the video's original DOM spot
@@ -449,12 +466,74 @@ function mountPlayerSurface(v: HTMLVideoElement): boolean {
   playerSurface = candidate;
   playerSurfaceStyle = style;
   surfaceVideo = v;
+  playerSurfaceToggle = (e: Event) => {
+    if ((e as { newState?: string }).newState !== "closed") return;
+    if (playerSurface !== candidate) return;
+    // beforetoggle fires synchronously inside the hide algorithm, where
+    // re-showing is not allowed yet. A microtask runs right after the hide
+    // completes but still before the next paint, so the closed state never
+    // reaches the screen. The plain toggle handler stays as a fallback for
+    // engines that only deliver the queued event.
+    if (e.type === "beforetoggle") queueMicrotask(recoverPlayerSurface);
+    else recoverPlayerSurface();
+  };
+  candidate.addEventListener("beforetoggle", playerSurfaceToggle);
+  candidate.addEventListener("toggle", playerSurfaceToggle);
+  // Reparenting (YouTube's playerAttach moves the player into the hydrated
+  // watch layout) hides the popover SILENTLY — no toggle events fire for a
+  // disconnected element. The mutation observer sees the reinsertion in the
+  // same mutation batch, and its callback runs as a microtask before the next
+  // render, so re-showing here keeps the closed popover from ever painting.
+  playerSurfaceObserver = new MutationObserver(() => {
+    const surface = playerSurface;
+    if (surface !== candidate || !fmt || exiting) return;
+    if (!surface.isConnected) return; // mid-migration — wait for the reinsertion
+    let open = false;
+    try {
+      open = surface.matches(":popover-open");
+    } catch {}
+    if (!open) recoverPlayerSurface();
+  });
+  playerSurfaceObserver.observe(document.documentElement, { childList: true, subtree: true });
   return true;
+}
+
+// YouTube rebuilds its top layer while a page is still loading or navigating,
+// which force-closes every open popover — ours included. That closure is not a
+// user action: put the surface back instead of tearing the session down. The
+// per-session cap concedes to a player that actively fights the popover.
+const MAX_SURFACE_RESHOWS = 6;
+let surfaceReshows = 0;
+function reshowPlayerSurface(): boolean {
+  const surface = playerSurface as PopoverPlayer | null;
+  if (!surface || !fmt || exiting) return false;
+  try {
+    if (surface.matches(":popover-open")) return true; // already recovered
+  } catch {}
+  if (!surface.isConnected || surfaceReshows >= MAX_SURFACE_RESHOWS) return false;
+  surfaceReshows++;
+  try {
+    surface.showPopover?.();
+    if (!surface.matches(":popover-open")) return false;
+  } catch {
+    return false;
+  }
+  notifyViewerLayout();
+  return true;
+}
+
+function recoverPlayerSurface(): void {
+  if (!playerSurface || !fmt || exiting) return; // no session to recover
+  if (!reshowPlayerSurface()) involuntaryExitViewer();
 }
 
 function unmountPlayerSurface(): void {
   const surface = playerSurface as PopoverPlayer | null;
   if (surface) {
+    if (playerSurfaceToggle) {
+      surface.removeEventListener("beforetoggle", playerSurfaceToggle);
+      surface.removeEventListener("toggle", playerSurfaceToggle);
+    }
     try {
       if (surface.matches(":popover-open")) surface.hidePopover?.();
     } catch {}
@@ -467,9 +546,12 @@ function unmountPlayerSurface(): void {
     clearNativeSurfaceMotion(surface);
   }
   video?.removeAttribute(PLAYER_SURFACE_VIDEO);
+  playerSurfaceObserver?.disconnect();
+  playerSurfaceObserver = null;
   playerSurfaceStyle?.remove();
   playerSurfaceStyle = null;
   playerSurface = null;
+  playerSurfaceToggle = null;
 }
 
 export function viewerLayoutPaused(): boolean {
@@ -745,7 +827,7 @@ function animateBackdropVideoIn(first: DOMRect | null): Animation | null {
   backdropVideo.style.opacity = "0";
   backdropVideo.getBoundingClientRect();
   const anim = backdropVideo.animate([backdropVideoTransformFrame(first, 0), viewportFrame(1)], {
-    duration: VIEWER_BACKDROP_VIDEO_ANIM_MS,
+    duration: viewerBackdropVideoAnimationMs(),
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     fill: "forwards",
   });
@@ -758,7 +840,7 @@ function animateBackdropVideoOut(target: DOMRect | null): Animation | null {
   if (!canAnimate(backdropVideo)) return null;
   if (!visibleRect(target)) {
     return backdropVideo.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: VIEWER_BACKDROP_VIDEO_ANIM_MS,
+      duration: viewerBackdropVideoAnimationMs(),
       easing: "cubic-bezier(0.4, 0, 1, 1)",
       fill: "forwards",
     });
@@ -766,7 +848,7 @@ function animateBackdropVideoOut(target: DOMRect | null): Animation | null {
   setBackdropVideoViewport("1");
   backdropVideo.getBoundingClientRect();
   const anim = backdropVideo.animate([viewportFrame(1), backdropVideoTransformFrame(target, 0)], {
-    duration: VIEWER_BACKDROP_VIDEO_ANIM_MS,
+    duration: viewerBackdropVideoAnimationMs(),
     easing: "cubic-bezier(0.4, 0, 1, 1)",
     fill: "forwards",
   });
@@ -776,11 +858,14 @@ function animateBackdropVideoOut(target: DOMRect | null): Animation | null {
   return anim;
 }
 
-function animateBackdropIn(delay = 190): void {
+function animateBackdropIn(
+  delay = viewerAnimationMs() === VIEWER_PLAYBACK_ANIM_MS ? 120 : 190,
+): void {
+  const duration = viewerAnimationMs();
   const keyframes: Keyframe[] = [{ opacity: 0 }, { opacity: 1 }];
   const options: KeyframeAnimationOptions = {
     delay,
-    duration: VIEWER_ANIM_MS - Math.min(delay, VIEWER_ANIM_MS - 80),
+    duration: duration - Math.min(delay, duration - 80),
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     fill: "forwards",
   };
@@ -792,7 +877,7 @@ function animateBackdropIn(delay = 190): void {
 function animateBackdropOut(target: DOMRect | null): Animation | null {
   const keyframes: Keyframe[] = [{ opacity: 1 }, { opacity: 0 }];
   const options: KeyframeAnimationOptions = {
-    duration: VIEWER_ANIM_MS,
+    duration: viewerAnimationMs(),
     easing: "cubic-bezier(0.4, 0, 1, 1)",
     fill: "forwards",
   };
@@ -875,8 +960,9 @@ function animateSurfaceFrom(first: SurfaceFrame | null): Animation | null {
     borderRadius: first.radius,
   } as Partial<CSSStyleDeclaration>);
   shell.getBoundingClientRect();
+  const duration = viewerAnimationMs();
   const anim = shell.animate([rectFrame(first.rect, first.radius), rectFrame(last, finalRadius)], {
-    duration: VIEWER_ANIM_MS,
+    duration,
     easing: "cubic-bezier(0.2, 0, 0, 1)",
   });
   surfaceTransition = anim;
@@ -899,7 +985,7 @@ function animateSurfaceFrom(first: SurfaceFrame | null): Animation | null {
   anim.oncancel = () => {
     if (surfaceTransition === anim) surfaceTransition = null;
   };
-  surfaceTransitionTimer = window.setTimeout(settle, VIEWER_ANIM_MS + 80);
+  surfaceTransitionTimer = window.setTimeout(settle, duration + 80);
   return anim;
 }
 
@@ -908,6 +994,7 @@ function animateSurfaceTo(target: DOMRect | null): Animation | null {
   if (!canAnimate(shell)) return null;
   const firstFrame = interruptSurfaceTransition();
   const first = firstFrame?.rect ?? shell.getBoundingClientRect();
+  const duration = viewerAnimationMs();
   if (!visibleRect(first) || !visibleRect(target)) {
     return shell.animate(
       [
@@ -915,7 +1002,7 @@ function animateSurfaceTo(target: DOMRect | null): Animation | null {
         { opacity: 0, transform: `${shell.style.transform || "none"} scale(.96)` },
       ],
       {
-        duration: VIEWER_ANIM_MS,
+        duration,
         easing: "cubic-bezier(0.4, 0, 1, 1)",
         fill: "forwards",
       },
@@ -936,7 +1023,7 @@ function animateSurfaceTo(target: DOMRect | null): Animation | null {
   } as Partial<CSSStyleDeclaration>);
   shell.getBoundingClientRect();
   const anim = shell.animate([rectFrame(first, startRadius), rectFrame(target, "0px")], {
-    duration: VIEWER_ANIM_MS,
+    duration,
     easing: "cubic-bezier(0.4, 0, 1, 1)",
     fill: "forwards",
   });
@@ -1007,12 +1094,13 @@ function animateNativeSurfaceFrom(first: DOMRect | null): Promise<void> | null {
   surface.style.setProperty("--vtp-viewer-motion-visibility", "visible");
   surface.getBoundingClientRect();
   layoutPaused = true;
+  const duration = viewerAnimationMs();
   return new Promise((resolve) => {
     requestAnimationFrame(() => {
       if (token !== nativeSurfaceTransitionToken || playerSurface !== surface) return;
       surface.style.setProperty(
         "--vtp-viewer-motion-transition",
-        `transform ${VIEWER_ANIM_MS}ms cubic-bezier(0.2, 0, 0, 1)`,
+        `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`,
       );
       surface.style.setProperty("--vtp-viewer-motion-transform", "translate(0, 0) scale(1)");
       nativeSurfaceTransitionTimer = setTimeout(() => {
@@ -1022,7 +1110,7 @@ function animateNativeSurfaceFrom(first: DOMRect | null): Promise<void> | null {
         layoutPaused = false;
         notifyViewerLayout();
         resolve();
-      }, VIEWER_ANIM_MS + 60);
+      }, duration + 60);
     });
   });
 }
@@ -1037,12 +1125,13 @@ function animateNativeSurfaceTo(target: DOMRect | null): Promise<void> | null {
   surface.style.setProperty("--vtp-viewer-motion-transform", "translate(0, 0) scale(1)");
   surface.style.setProperty("--vtp-viewer-motion-visibility", "visible");
   surface.getBoundingClientRect();
+  const duration = viewerAnimationMs();
   return new Promise((resolve) => {
     requestAnimationFrame(() => {
       if (token !== nativeSurfaceTransitionToken || playerSurface !== surface) return;
       surface.style.setProperty(
         "--vtp-viewer-motion-transition",
-        `transform ${VIEWER_ANIM_MS}ms cubic-bezier(0.4, 0, 1, 1)`,
+        `transform ${duration}ms cubic-bezier(0.4, 0, 1, 1)`,
       );
       surface.style.setProperty(
         "--vtp-viewer-motion-transform",
@@ -1052,7 +1141,7 @@ function animateNativeSurfaceTo(target: DOMRect | null): Promise<void> | null {
         if (token !== nativeSurfaceTransitionToken || playerSurface !== surface) return;
         nativeSurfaceTransitionTimer = null;
         resolve();
-      }, VIEWER_ANIM_MS + 60);
+      }, duration + 60);
     });
   });
 }
@@ -1063,7 +1152,7 @@ function waitAnimation(anim: Animation | null): Promise<void> {
   const cancel = anim.oncancel;
   return new Promise((resolve) => {
     let done = false;
-    const timer = setTimeout(complete, VIEWER_ANIM_MS + 180);
+    const timer = setTimeout(complete, viewerAnimationMs() + 180);
     function complete() {
       if (done) return;
       done = true;
@@ -1346,6 +1435,7 @@ function setFormat(f: ViewerFormat): void {
     f === "theater"
       ? notice("viewerNoticeTheater", "Theater")
       : notice("viewerNoticeViewer", "Viewer"),
+    { video },
   );
 }
 
@@ -1385,7 +1475,7 @@ function showBar(): void {
 function syncPlay(): void {
   if (
     video?.paused &&
-    playerSurface &&
+    (playerSurface || (autoOpenedSession && S.viewerAutoPlaybackOnly && !playbackFollowArmed)) &&
     !resumeSurfacePlaybackUsed &&
     Date.now() < resumeSurfacePlaybackUntil
   ) {
@@ -1397,6 +1487,21 @@ function syncPlay(): void {
     showBar();
     setViewerLoading(false);
   } else scheduleBackdropCanvas();
+}
+
+function handleViewerPlayState(): void {
+  syncPlay();
+  if (
+    video?.paused &&
+    !video.ended &&
+    autoOpenedSession &&
+    S.viewerAutoPlaybackOnly &&
+    playbackFollowArmed &&
+    !exiting
+  ) {
+    playbackPauseExit = true;
+    exitViewer();
+  }
 }
 
 function setViewerLoading(on: boolean): void {
@@ -2113,7 +2218,10 @@ function guard(): void {
     try {
       open = playerSurface.matches(":popover-open");
     } catch {}
-    if (!video?.isConnected || !overlay || !playerSurface.isConnected || !open) exitViewer();
+    if (!video?.isConnected || !overlay || !playerSurface.isConnected) involuntaryExitViewer();
+    // A silently closed popover (element briefly out of the top layer without a
+    // toggle event) gets one re-show attempt before the session is torn down.
+    else if (!open && !reshowPlayerSurface()) involuntaryExitViewer();
     return;
   }
   if (
@@ -2124,7 +2232,7 @@ function guard(): void {
     video.parentElement !== surfaceShell ||
     (holder && !holder.isConnected)
   ) {
-    exitViewer();
+    involuntaryExitViewer();
   }
 }
 
@@ -2152,7 +2260,7 @@ function hookGlobal(): void {
 function wireVideo(v: HTMLVideoElement): void {
   if (!media) return;
   const opt = { signal: media.signal };
-  for (const ev of ["play", "pause"]) v.addEventListener(ev, syncPlay, opt);
+  for (const ev of ["play", "pause"]) v.addEventListener(ev, handleViewerPlayState, opt);
   v.addEventListener("volumechange", syncVolume, opt);
   for (const ev of ["timeupdate", "durationchange", "loadedmetadata"]) {
     v.addEventListener(ev, syncTime, opt);
@@ -2264,6 +2372,32 @@ function refreshBackdropStream(): void {
 // identities per element instead: the same video stays dismissed, while a new
 // route can apply the configured auto mode again.
 const autoSeen = new WeakMap<HTMLVideoElement, Set<string>>();
+const pendingAutoOpen = new WeakMap<
+  HTMLVideoElement,
+  { identity: string; timer: ReturnType<typeof setTimeout> }
+>();
+let autoOpenedSession = false;
+let playbackPauseExit = false;
+// The video playback-follow just returned to the page on pause. Its next play
+// press reopens the viewer immediately — see maybeAutoOpenViewer.
+let playbackResume: { el: HTMLVideoElement; identity: string } | null = null;
+// An exit the page forced on us (it yanked the video home, tore the spot down,
+// or force-closed our popover) is not the user dismissing the viewer, so it
+// must not burn the once-per-identity auto-open. The flag is only ever set for
+// the synchronous exitViewer() call right under it; the per-identity counter
+// keeps a player that actively fights the viewer from bouncing it forever.
+let exitInvoluntarily = false;
+const autoReopenTries = new Map<string, number>();
+const MAX_AUTO_REOPEN_TRIES = 3;
+
+function involuntaryExitViewer(): void {
+  exitInvoluntarily = true;
+  try {
+    exitViewer();
+  } finally {
+    exitInvoluntarily = false;
+  }
+}
 
 function autoOpenIdentity(): string {
   if (isYouTube()) {
@@ -2292,6 +2426,12 @@ function rememberAutoOpen(t: HTMLVideoElement, identity: string): void {
   autoSeen.set(t, seen);
 }
 
+function forgetAutoOpen(t: HTMLVideoElement, identity: string): void {
+  const seen = autoSeen.get(t);
+  seen?.delete(identity);
+  if (seen?.size === 0) autoSeen.delete(t);
+}
+
 function autoOpenAllowedOnCurrentPage(): boolean {
   const host = location.hostname.toLowerCase();
   if (host === "youtube.com" || host.endsWith(".youtube.com")) {
@@ -2316,11 +2456,44 @@ export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
     return;
   const r = t.getBoundingClientRect();
   if (r.width < 200 || r.height < 112) return; // thumbnails/previews don't count
+  // Resuming a video that playback-follow itself just closed: the play press is
+  // an explicit gesture at a known-good video, so the "is playback stable?"
+  // debounce below (an anti-preview-flicker measure) would only add lag.
+  if (playbackResume && playbackResume.el === t && playbackResume.identity === identity) {
+    playbackResume = null;
+    rememberAutoOpen(t, identity);
+    void enter(S.viewerAuto, t, { autoTriggered: true });
+    return;
+  }
+  if (S.viewerAutoPlaybackOnly || isYouTube()) {
+    const pending = pendingAutoOpen.get(t);
+    if (pending?.identity === identity) return;
+    if (pending) clearTimeout(pending.timer);
+    const timer = setTimeout(() => {
+      const current = pendingAutoOpen.get(t);
+      if (!current || current.identity !== identity || current.timer !== timer) return;
+      pendingAutoOpen.delete(t);
+      if (
+        t.paused ||
+        t.ended ||
+        !autoOpenAllowedOnCurrentPage() ||
+        !S.viewerAutoEnabled ||
+        S.viewerAuto === "off" ||
+        fmt ||
+        autoSeen.get(t)?.has(identity)
+      )
+        return;
+      rememberAutoOpen(t, identity);
+      void enter(S.viewerAuto, t, { autoTriggered: true });
+    }, VIEWER_PLAYBACK_STABLE_MS);
+    pendingAutoOpen.set(t, { identity, timer });
+    return;
+  }
   rememberAutoOpen(t, identity);
-  void enter(S.viewerAuto, t);
+  void enter(S.viewerAuto, t, { autoTriggered: true });
 }
 
-function maybeAutoOpenPlayingPrimary(): void {
+export function maybeAutoOpenPlayingPrimary(): void {
   if (!autoOpenAllowedOnCurrentPage()) return;
   const t = primaryVideo();
   // A YouTube hover preview can keep playing while the SPA changes `/` to
@@ -2358,7 +2531,7 @@ document.addEventListener(
 async function enter(
   format: ViewerFormat,
   target?: HTMLVideoElement,
-  opts: { liveHint?: boolean } = {},
+  opts: { liveHint?: boolean; autoTriggered?: boolean } = {},
 ): Promise<void> {
   if (window.top !== window) return;
   const v = target ?? primaryVideo();
@@ -2396,6 +2569,14 @@ async function enter(
   fmt = format;
   video = v;
   videoAutoIdentity = autoOpenIdentity();
+  if (playbackFollowArmTimer != null) {
+    clearTimeout(playbackFollowArmTimer);
+    playbackFollowArmTimer = null;
+  }
+  autoOpenedSession = opts.autoTriggered === true;
+  playbackFollowArmed = !autoOpenedSession || !S.viewerAutoPlaybackOnly;
+  playbackPauseExit = false;
+  playbackResume = null; // a session is opening — the pending resume is served or stale
   surfaceVideo = null;
   backdropEl = null;
   surfaceShell = null;
@@ -2403,6 +2584,7 @@ async function enter(
   playerSurfaceStyle = null;
   backdropStream = null;
   viewerSession++;
+  surfaceReshows = 0;
   resumeSurfacePlaybackUntil = wasPlayingAtEntry ? Date.now() + 1800 : 0;
   resumeSurfacePlaybackUsed = false;
   sourceParent = null;
@@ -2483,6 +2665,19 @@ async function enter(
   media = new AbortController();
   const opt = { signal: media.signal };
   wireVideo(v);
+  // The one-shot resume in syncPlay() exists to undo the HOST player pausing
+  // itself as a side effect of top-layer entry — a pause that arrives without
+  // any user input. The moment real input happens, every later pause is the
+  // user's intent (YouTube even flashes its pause bezel), so never fight it.
+  for (const ev of ["pointerdown", "keydown", "touchstart"] as const) {
+    window.addEventListener(
+      ev,
+      () => {
+        resumeSurfacePlaybackUsed = true;
+      },
+      { capture: true, passive: true, signal: media.signal },
+    );
+  }
   overlay.addEventListener("mousemove", showBar, { passive: true, signal: media.signal });
   // A press on the dim (not on the video or the bar) closes.
   overlay.addEventListener(
@@ -2502,6 +2697,13 @@ async function enter(
   syncPlay();
   syncVolume();
   syncTime();
+  if (!playbackFollowArmed) {
+    const session = viewerSession;
+    playbackFollowArmTimer = setTimeout(() => {
+      playbackFollowArmTimer = null;
+      if (viewerSession === session && autoOpenedSession && !exiting) playbackFollowArmed = true;
+    }, viewerAnimationMs() + 100);
+  }
   if (!enterAnim) {
     layoutPaused = false;
     notifyViewerLayout();
@@ -2514,24 +2716,42 @@ async function enter(
 
 export function exitViewer(): void {
   if (!fmt || exiting) return;
+  const involuntary = exitInvoluntarily;
   exiting = true;
   // Stays paused for the whole close transition — same as enter() — so the
   // launcher doesn't reposition itself off a video mid-shrink/mid-restore.
   // finish() below clears it once the video is truly back in its original spot.
   layoutPaused = true;
   const exitingOverlay = overlay;
-  const targetRect = sourceRect;
-  const surfaceAnim: SurfaceTransition = playerSurface
-    ? animateNativeSurfaceTo(targetRect)
-    : animateSurfaceTo(targetRect);
-  const backdropAnim = animateBackdropOut(targetRect);
+  // sourceRect was measured at entry; the page may have re-laid itself out
+  // since (YouTube hydrates well past the auto-open). While the popover holds
+  // the player, its home spot can't be measured directly — but the surface's
+  // parent stays in normal flow and keeps the reserved player box. Prefer that
+  // live rect so the return animation lands where the player will actually sit.
+  let targetRect = sourceRect;
+  if (playerSurface) {
+    const home = playerSurface.parentElement;
+    if (home?.isConnected) {
+      const r = home.getBoundingClientRect();
+      if (visibleRect(r)) targetRect = r;
+    }
+  }
+  // A forced teardown means the page already reclaimed (or destroyed) the
+  // video's spot — animating the surface back to a stale rect just flashes.
+  // Restore instantly; only user-intended exits get the shrink transition.
+  const surfaceAnim: SurfaceTransition = involuntary
+    ? null
+    : playerSurface
+      ? animateNativeSurfaceTo(targetRect)
+      : animateSurfaceTo(targetRect);
+  const backdropAnim = involuntary ? null : animateBackdropOut(targetRect);
   const animated = !!surfaceAnim || !!backdropAnim;
   fmt = null;
   document.documentElement.removeAttribute(ATTR);
   document.documentElement.style.overflow = prevOverflow;
   notifyViewerState();
   bar?.animate?.([{ opacity: 1 }, { opacity: 0 }], {
-    duration: Math.min(160, VIEWER_ANIM_MS),
+    duration: Math.min(160, viewerAnimationMs()),
     easing: "ease",
     fill: "forwards",
   });
@@ -2543,6 +2763,10 @@ export function exitViewer(): void {
     }
     clearTimeout(barTimer);
     clearTimeout(barVisibilityTimer);
+    if (playbackFollowArmTimer != null) {
+      clearTimeout(playbackFollowArmTimer);
+      playbackFollowArmTimer = null;
+    }
     media?.abort();
     media = null;
     styleGuard?.disconnect();
@@ -2556,10 +2780,24 @@ export function exitViewer(): void {
     marksSourceKey = "";
     markerRanges = [];
     activeMarker = null;
+    const restoredVideo = video;
+    let shouldResumeAuto = playbackPauseExit;
+    playbackResume =
+      playbackPauseExit && restoredVideo
+        ? { el: restoredVideo, identity: videoAutoIdentity }
+        : null;
+    if (!shouldResumeAuto && involuntary && autoOpenedSession) {
+      const tries = autoReopenTries.get(videoAutoIdentity) ?? 0;
+      if (tries < MAX_AUTO_REOPEN_TRIES) {
+        autoReopenTries.set(videoAutoIdentity, tries + 1);
+        shouldResumeAuto = true;
+      }
+    }
     if (video) {
       // Use the identity captured on entry. The URL may already point at the
       // next SPA video by the time the close animation finishes.
-      rememberAutoOpen(video, videoAutoIdentity);
+      if (shouldResumeAuto) forgetAutoOpen(video, videoAutoIdentity);
+      else rememberAutoOpen(video, videoAutoIdentity);
       if (playerSurface) {
         unmountPlayerSurface();
       } else {
@@ -2627,9 +2865,20 @@ export function exitViewer(): void {
     liveLayoutAtViewerEntry = false;
     video = null;
     videoAutoIdentity = "";
+    autoOpenedSession = false;
+    playbackFollowArmed = false;
+    playbackPauseExit = false;
     // Players re-measure on resize — let the restored one lay itself out.
     window.dispatchEvent(new Event("resize"));
     notifyViewerLayout();
+    if (shouldResumeAuto) {
+      if (restoredVideo?.isConnected && !restoredVideo.paused && !restoredVideo.ended)
+        maybeAutoOpenViewer(restoredVideo);
+      // The page may have replaced the element while yanking the old one home
+      // (a reload/SPA teardown). The replacement is often already playing, so
+      // no further `play` event will arrive — re-check the primary directly.
+      else if (involuntary) maybeAutoOpenPlayingPrimary();
+    }
     // Some site players (YouTube's included) don't finish re-laying the
     // returned video out in the same tick — a launcher position measured right
     // now can grab a transitional rect and stick there. One more pass shortly

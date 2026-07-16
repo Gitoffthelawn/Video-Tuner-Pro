@@ -24,6 +24,7 @@ import { updateTimeBadge, flashBadge, ownsBadgeNode } from "./badge/overlay.js";
 import { updateLauncher, ownsLauncherNode } from "./overlay/launcher.js";
 import {
   exitViewer,
+  maybeAutoOpenPlayingPrimary,
   maybeAutoOpenViewer,
   ownsViewerNode,
   refreshViewerBackdrop,
@@ -287,6 +288,10 @@ function loadSpeed() {
       controlLive();
       updateTimeBadge();
       updateLauncher();
+      // Autoplay can begin before the asynchronous settings read finishes. The
+      // play event then sees the default auto mode (off), so retry once the
+      // persisted Viewer mode and playback-only behavior are available.
+      maybeAutoOpenPlayingPrimary();
     },
   );
 }
@@ -319,7 +324,12 @@ function reresolve(keys?: string[]) {
   });
   applyResolvedTargetFromStore(); // the channel changed — its allowed-delay may differ
   applyResolvedAutoSlowFromStore(); // ...and its auto-slow target may differ too
-  applyResolvedViewerAutoFromStore(); // ...and its viewer auto-open mode may differ too
+  applyResolvedViewerAutoFromStore(() => {
+    // On YouTube reload the channel identity often appears after playback has
+    // already started. Re-check once its channel-scoped auto mode is resolved;
+    // there may be no later `play` event to trigger the viewer.
+    maybeAutoOpenPlayingPrimary();
+  });
   applyResolvedViewerFitFromStore(); // ...and its viewer fit mode may differ too
 }
 
