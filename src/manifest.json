@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "3.1.4",
+  "version": "3.2.0",
   "minimum_chrome_version": "111",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
@@ -15,7 +15,6 @@
   "permissions": ["storage", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "popup/popup.html",
     "default_title": "__MSG_extName__",
     "default_icon": {
       "16": "icons/icon-16.png",

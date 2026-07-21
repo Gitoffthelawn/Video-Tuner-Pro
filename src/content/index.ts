@@ -21,7 +21,7 @@ import { applyResolvedTargetFromStore } from "./live/target.js";
 import { applyAudioComp } from "./audio/compressor.js";
 import { engageAudio } from "./audio/status.js";
 import { updateTimeBadge, flashBadge, ownsBadgeNode } from "./badge/overlay.js";
-import { updateLauncher, ownsLauncherNode } from "./overlay/launcher.js";
+import { updateLauncher, ownsLauncherNode, toggleOverlayPopup } from "./overlay/launcher.js";
 import {
   exitViewer,
   maybeAutoOpenPlayingPrimary,
@@ -54,6 +54,24 @@ import "./messaging.js"; // registers the popup message handler
 import "./keyboard.js"; // registers the keyboard-shortcut listener
 import "./theater.js"; // applies the YouTube "super theater" layout when enabled
 import { channelKeys, sameChannelIdentity, sameChannelKeys } from "./channel.js";
+import { applyChatFrameSkin, initChatFrameSkin } from "./chat/skin.js";
+
+// The toolbar icon has no native popup, so a click reaches the background, which
+// asks the top frame to toggle the in-page overlay (which isn't size-capped like the
+// native popup). Kept here in the content entry rather than the popup message router
+// so that module doesn't pull in the whole launcher graph.
+if (window.top === window && api.runtime?.onMessage) {
+  api.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+    if (request && request.action === "toggleOverlay") {
+      toggleOverlayPopup();
+      sendResponse({ ok: true });
+    }
+  });
+}
+
+// Dormant everywhere except inside a popout-chat iframe embedded by the viewer's
+// overlay chat panel (marked by a URL hash), where it restyles the chat page.
+initChatFrameSkin();
 
 try {
   const getURL = api.runtime?.getURL;
@@ -229,6 +247,10 @@ function loadSpeed() {
       // Simple scalars/flags (badge toggles, keyboard, steps, overlay button, audio
       // compressor params, auto-slow dynamics) load from the registry in one pass.
       loadRegistry(result);
+      // A skinned popout-chat frame builds its CSS at boot, before the stored
+      // settings arrive — rebuild it now that S holds the real values (no-op in
+      // every other frame).
+      applyChatFrameSkin();
       const ps = normalizePresetSet(result.speedPresets, result.presetKeys);
       S.presets = ps.presets.map((p) => p / 100);
       S.presetKeys = ps.keys;

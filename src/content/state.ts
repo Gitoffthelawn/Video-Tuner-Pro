@@ -78,6 +78,36 @@ export const S = {
   viewerFitScope: null as "channel" | "site" | "global" | null,
   // In normal Viewer mode, mirror the video behind the glass backdrop.
   viewerBackdropVideo: false,
+  // Stream chat inside the pop-out viewer (live pages on Twitch/YouTube/Kick):
+  // "off", "side" (native popout chat docked as a right column) or "overlay"
+  // (the same popout chat, skinned, in our floating panel over the video).
+  viewerChatMode: "off" as "off" | "side" | "overlay",
+  // Overlay chat panel look — background tint alpha, whether the message input
+  // is shown, and panel size (px). These are the global DEFAULTS set from the
+  // options page; adjustments made on the panel itself land in the per-site
+  // map below.
+  viewerChatOpacity: 0.4,
+  viewerChatInput: true,
+  viewerChatWidth: 340,
+  viewerChatHeight: 420,
+  // Per-site overlay-panel memory, written by using the panel: tint, size and
+  // the spot, anchored to the video box's nearest edges (h/v pick the edge,
+  // dx/dy hold the distance to it).
+  viewerChatPanelSites: {} as Record<
+    string,
+    {
+      opacity?: number;
+      width?: number;
+      height?: number;
+      h?: "left" | "right";
+      v?: "top" | "bottom";
+      dx?: number;
+      dy?: number;
+    }
+  >,
+  // Side-column width per site AND per viewer format, written by dragging the
+  // column's left edge. Falls back to the default 340px column.
+  viewerChatSideWidths: {} as Record<string, { normal?: number; theater?: number }>,
   // Opt-in: fetch SponsorBlock segments for the current YouTube video and show
   // them on the viewer's seek bar (a third-party API request — hence opt-in).
   sponsorMarks: false,
