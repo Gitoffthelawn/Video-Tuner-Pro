@@ -11,7 +11,7 @@ import { i18n } from "../platform/i18n.js";
 import { animateIn, animateOutAndRemove, glide } from "./motion.js";
 import { SIDE_CHAT_MAX, SIDE_CHAT_MIN, SIDE_CHAT_WIDTH } from "../../shared/chat-bounds.js";
 import { sideChatUrl } from "./platform.js";
-import { OVERLAY_SKIN_HASH } from "./panel.js";
+import { SIDE_SKIN_HASH } from "./panel.js";
 
 export { SIDE_CHAT_WIDTH, SIDE_CHAT_MIN, SIDE_CHAT_MAX };
 
@@ -43,7 +43,9 @@ export interface SideChat {
   // Open a short transition window so the next layout() glides along with the
   // viewer's own video animation instead of snapping.
   glide(ms: number): void;
-  destroy(): void;
+  // `instant` removes the column without its slide-out — used on a full viewer
+  // exit so it doesn't animate on a different clock than the video's FLIP.
+  destroy(instant?: boolean): void;
 }
 
 export function mountSideChat(overlay: HTMLElement, cb: SideChatCallbacks): SideChat | null {
@@ -77,7 +79,7 @@ export function mountSideChat(overlay: HTMLElement, cb: SideChatCallbacks): Side
     font: "13px/1.4 -apple-system,system-ui,sans-serif",
   } as Partial<CSSStyleDeclaration>);
   const frame = document.createElement("iframe");
-  frame.src = url + OVERLAY_SKIN_HASH;
+  frame.src = url + SIDE_SKIN_HASH;
   // Both ends pinned to dark (the skin pins the frame document): a color-scheme
   // mismatch makes Chrome paint an opaque canvas behind the frame.
   frame.style.colorScheme = "dark";
@@ -159,10 +161,14 @@ export function mountSideChat(overlay: HTMLElement, cb: SideChatCallbacks): Side
       col.style.background = sideTint();
     },
     glide: (ms: number) => glide(col, ms),
-    destroy(): void {
+    destroy(instant = false): void {
       // Drop the marker first so a replacement column can mount while this one
       // is still fading out.
       col.removeAttribute("data-vtp-viewer-chat-side");
+      if (instant) {
+        col.remove();
+        return;
+      }
       animateOutAndRemove(col, { transform: "translateX(24px)" });
     },
   };

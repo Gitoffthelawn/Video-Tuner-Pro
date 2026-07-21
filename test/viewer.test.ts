@@ -2277,7 +2277,7 @@ describe("viewer chat — side mode", () => {
     expect(col).not.toBeNull();
     expect(col!.style.width).toBe("340px");
     expect(col!.querySelector("iframe")?.getAttribute("src")).toBe(
-      "https://www.twitch.tv/popout/somechannel/chat?darkpopout#vtp-chat-overlay",
+      "https://www.twitch.tv/popout/somechannel/chat?darkpopout#vtp-chat-side",
     );
     // The video shell stops at the chat column instead of filling the window.
     expect(shellEl()!.style.right).toBe("340px");
