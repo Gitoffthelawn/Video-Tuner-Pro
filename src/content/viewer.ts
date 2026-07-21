@@ -904,6 +904,15 @@ function visibleRect(r: DOMRect | null): r is DOMRect {
   return !!r && r.width > 1 && r.height > 1;
 }
 
+// Two boxes share an aspect ratio within tolerance. Used on exit to reject a
+// home rect that a still-lifted surface has collapsed to the wrong shape.
+function aspectClose(a: DOMRect, b: DOMRect, tol = 0.15): boolean {
+  if (a.height <= 0 || b.height <= 0) return false;
+  const ra = a.width / a.height;
+  const rb = b.width / b.height;
+  return Math.abs(ra - rb) <= rb * tol;
+}
+
 function animateBackdropLayer(
   el: HTMLElement | null,
   keyframes: Keyframe[],
@@ -977,9 +986,12 @@ function animateBackdropVideoIn(first: DOMRect | null): Animation | null {
 
 function animateBackdropVideoOut(target: DOMRect | null): Animation | null {
   if (!canAnimate(backdropVideo)) return null;
+  // Exit runs on the surface FLIP's clock: finish() (which removes the backdrop
+  // video) fires when that settles, so a longer out-zoom would be yanked mid-air.
+  const dur = viewerAnimationMs();
   if (!visibleRect(target)) {
     return backdropVideo.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: viewerBackdropVideoAnimationMs(),
+      duration: dur,
       easing: "cubic-bezier(0.4, 0, 1, 1)",
       fill: "forwards",
     });
@@ -987,7 +999,7 @@ function animateBackdropVideoOut(target: DOMRect | null): Animation | null {
   setBackdropVideoViewport("1");
   backdropVideo.getBoundingClientRect();
   const anim = backdropVideo.animate([viewportFrame(1), backdropVideoTransformFrame(target, 0)], {
-    duration: viewerBackdropVideoAnimationMs(),
+    duration: dur,
     easing: "cubic-bezier(0.4, 0, 1, 1)",
     fill: "forwards",
   });
@@ -3122,7 +3134,12 @@ export function exitViewer(): void {
     const home = playerSurface.parentElement;
     if (home?.isConnected) {
       const r = home.getBoundingClientRect();
-      if (visibleRect(r)) targetRect = r;
+      // Only trust the live home rect when it still matches the player's shape.
+      // While the surface holds the top layer its parent can collapse to a wrong
+      // aspect (Twitch), and FLIPping to that stretches the video; fall back to
+      // the entry rect there.
+      if (visibleRect(r) && (!visibleRect(sourceRect) || aspectClose(r, sourceRect)))
+        targetRect = r;
     }
   }
   // A forced teardown means the page already reclaimed (or destroyed) the

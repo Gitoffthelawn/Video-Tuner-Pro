@@ -199,8 +199,14 @@ export function mountViewerChat(context: ChatContext): void {
 export function unmountViewerChat(): void {
   ctx = null;
   liveSideWidth = null;
+  // Full viewer exit: tear every surface down instantly so a slide/fade-out
+  // doesn't animate on a different clock than the video's FLIP (a visible detach).
   fab?.destroy();
   fab = null;
+  side?.destroy(true);
+  side = null;
+  panel?.destroy(true);
+  panel = null;
   updateViewerChat();
 }
 

@@ -1,13 +1,15 @@
-// Overlay skin for the popout-chat iframe. The overlay panel embeds the
-// platform's popout chat with OVERLAY_SKIN_HASH in the URL; our content script
-// runs inside that frame too (all_frames) and restyles the page: transparent
-// backgrounds (the panel behind provides the tint), a text shadow for
-// readability over video, no header chrome, and the message input shown only
-// when the viewerChatInput setting is on. Settings arrive through this frame's
-// own registry load — applyChatFrameSkin() re-applies on changes.
+// Skin for the popout-chat iframe. Both chat surfaces embed the platform's popout
+// chat with a hash in the URL (OVERLAY_SKIN_HASH / SIDE_SKIN_HASH); our content
+// script runs inside that frame too (all_frames) and restyles the page: transparent
+// backgrounds (the panel/column behind provides the tint) and a text shadow for
+// readability over video, in both modes. The OVERLAY mode additionally strips the
+// chat chrome (header, leaderboard) and auto-hides the message input (or hides it
+// per the viewerChatInput setting); the docked SIDE column keeps its header and a
+// permanently-visible input. Settings arrive through this frame's own registry
+// load — applyChatFrameSkin() re-applies on changes.
 import { S } from "../state.js";
 import { chatPlatform } from "./platform.js";
-import { OVERLAY_SKIN_HASH } from "./panel.js";
+import { OVERLAY_SKIN_HASH, SIDE_SKIN_HASH } from "./panel.js";
 
 const STYLE_ATTR = "data-vtp-chat-skin";
 // Set on <html> while the pointer has been away from the chat for a while —
@@ -122,6 +124,9 @@ const ROOTS: Record<string, string> = {
 
 let styleEl: HTMLStyleElement | null = null;
 let platform: ReturnType<typeof chatPlatform> = null;
+// Overlay mode strips the chat chrome and auto-hides the input; the docked side
+// column keeps its header and a permanently-visible input.
+let overlayMode = false;
 
 function forceTransparentRoots(p: NonNullable<typeof platform>): void {
   const els: (HTMLElement | null)[] = [
@@ -180,19 +185,27 @@ function inputIdleCss(p: NonNullable<typeof platform>): string {
   );
 }
 
-function css(p: NonNullable<typeof platform>): string {
+// `overlay` strips the chat chrome (header/leaderboard) and governs the input:
+// shown-with-auto-hide, or hidden by the setting. Side mode keeps both — only the
+// transparent backgrounds, plate-flattening and text shadow are shared.
+function css(p: NonNullable<typeof platform>, overlay: boolean): string {
   return (
     // Must match the embedding iframe's color-scheme (panel.ts pins it to
     // dark): on a mismatch Chrome paints an opaque canvas behind the frame
     // and no amount of transparent backgrounds can show through it.
     `:root:not(#vtp-a):not(#vtp-b){color-scheme:dark!important}` +
     `${boost(TRANSPARENT[p])}{background:transparent!important;background-color:transparent!important}` +
-    (HIDE[p] ? `${boost(HIDE[p])}{display:none!important}` : "") +
-    (p === "youtube" ? YT_HEADER_COLLAPSE + YT_MENU_FIX : "") +
+    (overlay && HIDE[p] ? `${boost(HIDE[p])}{display:none!important}` : "") +
+    (p === "youtube" ? (overlay ? YT_HEADER_COLLAPSE : "") + YT_MENU_FIX : "") +
     (p === "kick" ? KICK_POPOVER_PLATE : "") +
     inputZoneCss(p) +
     `${TEXT[p]}{text-shadow:0 0 3px #000,0 1px 3px #000,0 0 10px rgba(0,0,0,0.7)}` +
-    (S.viewerChatInput ? inputIdleCss(p) : `${boost(INPUT[p])}{display:none!important}`)
+    // Input handling is overlay-only; the side column always shows its input.
+    (overlay
+      ? S.viewerChatInput
+        ? inputIdleCss(p)
+        : `${boost(INPUT[p])}{display:none!important}`
+      : "")
   );
 }
 
@@ -228,7 +241,7 @@ function initInputIdle(): void {
 // applyViewerChatSettings hook, which runs in every frame).
 export function applyChatFrameSkin(): void {
   if (!styleEl || !platform) return;
-  styleEl.textContent = css(platform);
+  styleEl.textContent = css(platform, overlayMode);
   forceTransparentRoots(platform);
 }
 
@@ -236,16 +249,17 @@ export function applyChatFrameSkin(): void {
 // is a popout chat embedded by the overlay panel (marked by the URL hash).
 export function initChatFrameSkin(): void {
   if (window.top === window) return;
-  if (location.hash !== OVERLAY_SKIN_HASH) return;
+  if (location.hash !== OVERLAY_SKIN_HASH && location.hash !== SIDE_SKIN_HASH) return;
   const p = chatPlatform();
   if (!p) return;
+  overlayMode = location.hash === OVERLAY_SKIN_HASH;
   // An extension reload leaves the previous script's style behind — its stale
   // rules would keep applying alongside ours.
   document.querySelectorAll(`style[${STYLE_ATTR}]`).forEach((n) => n.remove());
   platform = p;
   styleEl = document.createElement("style");
   styleEl.setAttribute(STYLE_ATTR, "");
-  styleEl.textContent = css(p);
+  styleEl.textContent = css(p, overlayMode);
   // Chrome ignores a <style> hanging directly off <html> — it must land in
   // <head>, which may not exist yet at document_start. The inline root pass
   // needs <body> (and the app root), so it waits for DOMContentLoaded too.
@@ -256,5 +270,6 @@ export function initChatFrameSkin(): void {
   };
   if (document.head && document.body) attach();
   else document.addEventListener("DOMContentLoaded", attach, { once: true });
-  initInputIdle();
+  // Idle auto-hide of the input is an overlay-only behaviour.
+  if (overlayMode) initInputIdle();
 }

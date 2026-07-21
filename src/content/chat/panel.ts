@@ -26,9 +26,12 @@ const HEAD_HEIGHT = 22;
 // Fresh sites start at the video's bottom-left corner, above the bar.
 const DEFAULT_ANCHOR: PanelAnchor = { h: "left", v: "bottom", dx: 24, dy: BAR_CLEARANCE };
 
-// URL hash that tells the content script inside the popout frame to apply the
-// overlay skin. Side mode embeds the same URL without it and stays native.
+// URL hashes that tell the content script inside the popout frame which skin to
+// apply. Both drop opaque backgrounds so the panel/column tint shows through, but
+// only the overlay skin strips the chat chrome (header, leaderboard) and auto-hides
+// the message input — the docked side column keeps its header and a live input.
 export const OVERLAY_SKIN_HASH = "#vtp-chat-overlay";
+export const SIDE_SKIN_HASH = "#vtp-chat-side";
 
 // Everything the panel remembers about a site. All fields optional — absent
 // ones fall back to the global settings / the default anchor.
@@ -64,7 +67,9 @@ export interface ChatPanel {
   raise(): void;
   // Transition window for the next layout()/applySettings() — see motion.ts.
   glide(ms: number): void;
-  destroy(): void;
+  // `instant` removes the panel without its fade-out — used on a full viewer exit
+  // so it doesn't animate on a different clock than the video's FLIP.
+  destroy(instant?: boolean): void;
 }
 
 export function mountChatPanel(overlay: HTMLElement, cb: ChatPanelCallbacks): ChatPanel | null {
@@ -296,11 +301,16 @@ export function mountChatPanel(overlay: HTMLElement, cb: ChatPanelCallbacks): Ch
     reelevate: pop.reelevate,
     raise: pop.raise,
     glide: (ms: number) => glide(host, ms),
-    destroy(): void {
+    destroy(instant = false): void {
       if (tintSave != null) clearTimeout(tintSave);
       // Drop the marker first so a replacement panel can mount while this one
       // is still fading out; the popover stays shown until the fade ends.
       host.removeAttribute("data-vtp-viewer-chat-panel");
+      if (instant) {
+        pop.dispose();
+        host.remove();
+        return;
+      }
       animateOutAndRemove(host, { transform: "scale(.96) translateY(8px)" }, () => pop.dispose());
     },
   };

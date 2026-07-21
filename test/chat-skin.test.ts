@@ -8,6 +8,11 @@ function asOverlayPopout(hostname: string, pathname: string): void {
   vi.stubGlobal("location", { hostname, pathname, hash: "#vtp-chat-overlay" });
 }
 
+function asSidePopout(hostname: string, pathname: string): void {
+  Object.defineProperty(window, "top", { value: {}, configurable: true });
+  vi.stubGlobal("location", { hostname, pathname, hash: "#vtp-chat-side" });
+}
+
 const skinStyle = () => document.head.querySelector("style[data-vtp-chat-skin]");
 
 afterEach(() => {
@@ -57,5 +62,29 @@ describe("initChatFrameSkin", () => {
     });
     initChatFrameSkin();
     expect(skinStyle()).toBeNull();
+  });
+
+  it("overlay mode strips the chat chrome and governs the input", () => {
+    asOverlayPopout("www.twitch.tv", "/popout/somechannel/chat");
+    initChatFrameSkin();
+    const css = skinStyle()?.textContent ?? "";
+    // The stream-chat header/leaderboard are hidden, and the idle auto-hide is wired.
+    expect(css).toContain(".stream-chat-header");
+    expect(css).toContain("display:none!important");
+    expect(css).toContain("data-vtp-chat-idle");
+  });
+
+  it("side mode keeps the header and a live input, but still goes transparent", () => {
+    asSidePopout("www.twitch.tv", "/popout/somechannel/chat");
+    S.viewerChatInput = false; // must be ignored in side mode
+    initChatFrameSkin();
+    const css = skinStyle()?.textContent ?? "";
+    // Shared look: transparent + readable text.
+    expect(css).toContain("background:transparent!important");
+    expect(css).toContain("text-shadow");
+    // No chrome-hiding and no input hiding/auto-hide leaks into the docked column.
+    expect(css).not.toContain(".stream-chat-header");
+    expect(css).not.toContain("data-vtp-chat-idle");
+    expect(css).not.toContain(".chat-input:not(#vtp-a):not(#vtp-b){display:none");
   });
 });
