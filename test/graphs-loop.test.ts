@@ -108,4 +108,64 @@ describe("setupGraphs", () => {
     expect(cancel).toHaveBeenCalled();
     expect(drawAudio.mock.calls.length).toBe(frames);
   });
+
+  // The audio/speech windows are short (6s/8s), so a throttled sample makes the
+  // live edge step by a visible slice of the width every time a point lands. Both
+  // record per frame; only the 30s buffer graph keeps its throttle.
+  it("records an audio and speech point every frame, and throttles the buffer", async () => {
+    vi.useFakeTimers();
+    vi.doMock("../src/popup/graphs/audio-meter.js", () => ({ drawAudio: vi.fn() }));
+    vi.doMock("../src/popup/graphs/latency-graph.js", () => ({ drawBuffer: vi.fn() }));
+    vi.doMock("../src/popup/graphs/autoslow-graph.js", () => ({ drawAutoSlow: vi.fn() }));
+    let graph: {
+      audioHist: unknown[];
+      asHist: unknown[];
+      bufHist: unknown[];
+    } | null = null;
+    vi.doMock("../src/popup/graphs/poll.js", () => ({
+      startPoll: (state: Record<string, unknown>) => {
+        state.audioActive = true;
+        state.asActive = true;
+        state.bufLive = true;
+        state.bufSmooth = 4;
+        graph = state as unknown as typeof graph;
+        return vi.fn();
+      },
+    }));
+    let clock = 0;
+    vi.stubGlobal("performance", { now: () => clock });
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((cb: FrameRequestCallback) =>
+        Number(
+          setTimeout(() => {
+            clock += 16;
+            cb(clock);
+          }, 16),
+        ),
+      ),
+    );
+    vi.stubGlobal(
+      "cancelAnimationFrame",
+      vi.fn((id: number) => clearTimeout(id)),
+    );
+    canvas("audioMeter");
+    canvas("bufferMeter");
+    canvas("autoSlowMeter");
+
+    const { setupGraphs } = await import("../src/popup/graphs/index.js");
+    const stop = setupGraphs(
+      () => 1,
+      () => {},
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(16 * 10);
+    stop();
+
+    const g = graph as unknown as { audioHist: unknown[]; asHist: unknown[]; bufHist: unknown[] };
+    expect(g.audioHist.length).toBeGreaterThanOrEqual(10);
+    expect(g.asHist.length).toBe(g.audioHist.length);
+    // 160ms of frames at an 80ms sample step — a fraction of the per-frame count.
+    expect(g.bufHist.length).toBeLessThanOrEqual(3);
+  });
 });
