@@ -23,10 +23,8 @@ export function setupGraphs(
   const g = createGraphState(aCanvas, acx, bCanvas, bcx, asCanvas, ascx);
   let raf = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let audioSampleAt = 0;
   let bufferSampleAt = 0;
-  let autoSlowSampleAt = 0;
-  const SAMPLE_MS = 80;
+  const BUF_SAMPLE_MS = 80;
 
   const graphActive = (): boolean =>
     g.audioActive ||
@@ -47,20 +45,21 @@ export function setupGraphs(
     g.cur.in += (g.tgt.in - g.cur.in) * 0.3;
     g.cur.out += (g.tgt.out - g.cur.out) * 0.3;
     g.compAnim += ((g.audioEnabled ? 1 : 0) - g.compAnim) * 0.12; // morph readout/ghost on toggle
-    // Record the eased level each frame so the waveform scrolls smoothly.
+    // Record the eased level each frame so the waveform scrolls smoothly. Over a
+    // 6s window a throttled sample would leave the live edge stepping back and
+    // forth by a visible slice of the width, and each sample would land on an
+    // already-settled poll value — hiding the easing entirely.
     if (g.audioActive) {
-      if (t - audioSampleAt >= SAMPLE_MS) {
-        audioSampleAt = t;
-        g.audioHist.push({ t, in: g.cur.in, out: g.cur.out });
-        while (g.audioHist.length && t - g.audioHist[0].t > A_WINDOW + 200) g.audioHist.shift();
-      }
+      g.audioHist.push({ t, in: g.cur.in, out: g.cur.out });
+      while (g.audioHist.length && t - g.audioHist[0].t > A_WINDOW + 200) g.audioHist.shift();
     } else if (g.audioHist.length) {
       g.audioHist.length = 0;
       g.audioInShown = g.audioOutShown = null;
     }
-    // Same for the buffer: ease toward the latest poll reading and record a point
-    // every frame, so the live (right) edge advances smoothly. The poll only fires
-    // ~13×/s, which otherwise makes the leading edge step.
+    // Same for the buffer: ease toward the latest poll reading so the live (right)
+    // edge advances smoothly instead of stepping with the ~13×/s poll. Its points
+    // stay throttled — over a 30s window the sample spacing is a fraction of a
+    // percent of the width, and per-frame history would be 25× longer.
     if (g.bufLive && g.bufSmooth != null) {
       g.bufCur = g.bufCur == null ? g.bufSmooth : g.bufCur + (g.bufSmooth - g.bufCur) * 0.3;
       g.bufCurAhead =
@@ -69,7 +68,7 @@ export function setupGraphs(
           : g.bufCurAhead == null
             ? g.bufAheadSmooth
             : g.bufCurAhead + (g.bufAheadSmooth - g.bufCurAhead) * 0.3;
-      if (t - bufferSampleAt >= SAMPLE_MS) {
+      if (t - bufferSampleAt >= BUF_SAMPLE_MS) {
         bufferSampleAt = t;
         g.bufHist.push({ t, v: g.bufCur, a: g.bufCurAhead });
         while (g.bufHist.length && t - g.bufHist[0].t > BUF_WINDOW + 1000) g.bufHist.shift();
@@ -82,11 +81,8 @@ export function setupGraphs(
     if (g.asActive) {
       g.asRateCur += (g.asRate - g.asRateCur) * 0.3;
       g.asSpeedCur += (g.asSpeed - g.asSpeedCur) * 0.3;
-      if (t - autoSlowSampleAt >= SAMPLE_MS) {
-        autoSlowSampleAt = t;
-        g.asHist.push({ t, rate: g.asRateCur, speed: g.asSpeedCur });
-        while (g.asHist.length && t - g.asHist[0].t > AS_WINDOW + 200) g.asHist.shift();
-      }
+      g.asHist.push({ t, rate: g.asRateCur, speed: g.asSpeedCur });
+      while (g.asHist.length && t - g.asHist[0].t > AS_WINDOW + 200) g.asHist.shift();
     } else if (g.asHist.length) {
       g.asHist.length = 0;
     }
