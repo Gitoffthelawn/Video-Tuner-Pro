@@ -128,6 +128,10 @@ export function mountBadge(): BadgeRefs {
   // Native Viewer surfaces use the browser's top layer. Keep this host zero-sized
   // and neutral so it can temporarily become a manual popover without the user
   // agent's default popover box affecting the fixed-position badge in its shadow.
+  // The z-index belongs HERE, not only on the badge inside the shadow: a fixed
+  // host opens its own stacking context, which traps the badge's z-index inside
+  // it and lets any positioned page layer (Twitch stacks dozens over the player)
+  // paint on top. Same reason the launcher host carries one.
   Object.assign(host.style, {
     position: "fixed",
     left: "0",
@@ -139,6 +143,7 @@ export function mountBadge(): BadgeRefs {
     border: "0",
     overflow: "visible",
     background: "transparent",
+    zIndex: "2147483646", // one below the launcher host, matching the badge itself
   } as CSSProperties);
   // Render straight into the shadow root (no wrapper element) so the badge is its
   // only child — overlay.ts and the tests can find it as the shadow's lone div.

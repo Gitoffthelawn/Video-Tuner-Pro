@@ -410,6 +410,19 @@ describe("updateTimeBadge — positioning", () => {
     expect(host?.parentNode).toBe(document.body);
     expect(video.querySelector("[data-vtp-badge]")).toBeNull();
   });
+
+  // The fixed host opens its own stacking context, so the badge's own z-index
+  // never reaches the page. Without one here the badge paints under the player's
+  // positioned layers (Twitch stacks dozens of them over the video).
+  it("stacks the shadow host itself above page layers", () => {
+    h.primary = fakeVideo();
+
+    updateTimeBadge();
+
+    const host = document.querySelector<HTMLElement>("[data-vtp-badge]");
+    expect(host?.style.position).toBe("fixed");
+    expect(Number(host?.style.zIndex)).toBeGreaterThanOrEqual(2147483646);
+  });
 });
 
 describe("ownsBadgeNode", () => {
