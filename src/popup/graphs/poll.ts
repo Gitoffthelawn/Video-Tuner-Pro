@@ -148,6 +148,22 @@ export function startPoll(
       }
       if (g.bufLive && typeof resp.buffer === "number") {
         const t = now();
+        // The primary series changes meaning the moment the site's latency shows
+        // up (the MAIN-world bridge needs a few seconds to reach the player) or
+        // goes away again: without it the series IS the buffered-ahead seconds,
+        // with it that value moves to its own line and the primary becomes the
+        // latency. Recorded points would then be redrawn under the new meaning —
+        // on a mirrored scale, with the EMA drifting from one value to the other.
+        // Start the series over at the switch instead.
+        if ((typeof resp.bufferAhead === "number") !== (g.bufAhead != null)) {
+          g.bufHist.length = 0;
+          g.bufSmooth = null;
+          g.bufAheadSmooth = null;
+          g.bufShown = null;
+          g.bufShownAt = 0;
+          g.bufAheadShown = null;
+          g.bufAheadAt = 0;
+        }
         // Smooth the raw reading (it sawtooths per segment) before plotting.
         const raw = Number(resp.buffer);
         const bs = g.bufSmooth == null ? raw : g.bufSmooth + (raw - g.bufSmooth) * 0.18;
