@@ -197,6 +197,40 @@ describe("graph polling under the Firefox overlay", () => {
     expect(g.bufLimited).toBe(true);
   });
 
+  // The bridge reaches Twitch's player a few seconds in. Before that the primary
+  // series is the buffered-ahead value; after, it is the latency and the buffer
+  // moves to its own line — so the recorded points would be redrawn under the new
+  // meaning, on a mirrored scale, with the EMA sliding between the two values.
+  it("restarts the buffer series when the site's latency appears", async () => {
+    const replies: Record<string, unknown> = { getMonitor: { live: true, buffer: 4 } };
+    embed(replies);
+    vi.resetModules();
+    vi.useFakeTimers();
+    const { startPoll } = await import("../src/popup/graphs/poll.js");
+    const g = await makeState();
+
+    const stop = startPoll(
+      g,
+      () => 42,
+      () => {},
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(80);
+    expect(g.bufSmooth).toBe(4);
+    expect(g.bufAhead).toBeNull();
+    // Points are recorded by the rAF loop (graphs/index.ts); stand in for it.
+    g.bufHist.push({ t: 1, v: 4, a: null });
+
+    replies.getMonitor = { live: true, buffer: 1.2, bufferAhead: 4.1 };
+    await vi.advanceTimersByTimeAsync(80);
+    stop();
+
+    expect(g.bufHist).toHaveLength(0);
+    expect(g.bufSmooth).toBe(1.2); // snapped to the latency, not eased down from 4
+    expect(g.bufAheadSmooth).toBe(4.1);
+    expect(g.bufAhead).toBe(4.1);
+  });
+
   it("backs off without messaging when the host tab is temporarily unknown", async () => {
     const sent = embed({});
     vi.resetModules();
