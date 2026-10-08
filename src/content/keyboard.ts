@@ -64,7 +64,7 @@ document.addEventListener(
   "keydown",
   (e) => {
     if (e.defaultPrevented) return;
-    if (!S.keyboardEnabled || !ctxValid()) return;
+    if (S.siteDisabled || !S.keyboardEnabled || !ctxValid()) return;
     const { slower, faster, reset, toggle, hold, overlay, viewer, theater, chat } = S.keymap;
     const oneShotRepeat =
       e.repeat &&

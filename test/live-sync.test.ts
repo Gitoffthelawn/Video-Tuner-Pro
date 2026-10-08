@@ -73,6 +73,7 @@ beforeEach(() => {
   S.userSpeed = 1.0;
   S.liveSyncEnabled = false;
   S.liveSyncTarget = 5;
+  S.siteDisabled = false;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -82,6 +83,23 @@ describe("controlLive dispatch", () => {
     controlLive();
     expect(h.teardown).toHaveBeenCalled();
     expect(h.liveVideo).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on a blacklisted site — the page keeps its own live rate", () => {
+    const live = fakeVideo({ playbackRate: 1.25 });
+    h.liveVideo.mockReturnValue(live);
+    S.siteDisabled = true;
+
+    controlLive();
+
+    expect(live.playbackRate).toBe(1.25);
+    expect(h.liveVideo).not.toHaveBeenCalled();
+    expect(h.applyAll).not.toHaveBeenCalled();
+
+    // The throttle clock never started, so switching back on takes effect at once.
+    S.siteDisabled = false;
+    controlLive();
+    expect(live.playbackRate).toBe(1);
   });
 
   it("throttles to one run per 250 ms", () => {

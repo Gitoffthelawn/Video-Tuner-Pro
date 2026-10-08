@@ -85,6 +85,21 @@ describe("super-theater lifecycle", () => {
     expect(document.documentElement.hasAttribute("vtp-super-theater")).toBe(false);
   });
 
+  it("syncSuperTheater follows the site state: off drops the layout, on restores it", async () => {
+    h.values = { superTheater: true, superTheaterStream: false };
+    const mod = await load();
+    const { S } = await import("../src/content/state.js"); // same registry as the module above
+    expect(document.documentElement.hasAttribute("vtp-super-theater")).toBe(true);
+
+    S.siteDisabled = true;
+    mod.syncSuperTheater();
+    expect(document.documentElement.hasAttribute("vtp-super-theater")).toBe(false);
+
+    S.siteDisabled = false;
+    mod.syncSuperTheater();
+    expect(document.documentElement.hasAttribute("vtp-super-theater")).toBe(true);
+  });
+
   it("reacts only to our storage areas and theater keys", async () => {
     h.values = { superTheater: false, superTheaterStream: false };
     await load();

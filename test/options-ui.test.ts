@@ -179,6 +179,66 @@ describe("Options · General", () => {
   });
 });
 
+describe("Options · Disabled sites", () => {
+  const field = () => byId("siteBlacklist") as HTMLTextAreaElement;
+  // Same as typeInput, for a <textarea> (React reads the native value setter's change).
+  function typeText(el: HTMLTextAreaElement, value: string, commit = true): void {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    setter.call(el, value);
+    act(() => el.dispatchEvent(new Event("input", { bubbles: true })));
+    if (commit) act(() => el.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+  }
+
+  it("lists the stored sites, one per line", async () => {
+    await mountOptions({ siteBlacklist: ["youtube.com", "example.org"] });
+    expect(field().value).toBe("youtube.com\nexample.org");
+  });
+
+  it("saves what was typed normalized and deduped, then shows the cleaned-up list", async () => {
+    const { get } = await mountOptions({});
+    typeText(
+      field(),
+      "https://www.YouTube.com/watch?v=1\nexample.org, m.example.org\n\nexa$mple.com\nhttp://",
+    );
+    await flush();
+    expect(get(["siteBlacklist"]).siteBlacklist).toEqual(["youtube.com", "example.org"]);
+    expect(field().value).toBe("youtube.com\nexample.org");
+  });
+
+  it("removing every line clears the list", async () => {
+    const { get } = await mountOptions({ siteBlacklist: ["youtube.com"] });
+    typeText(field(), "");
+    await flush();
+    expect(get(["siteBlacklist"]).siteBlacklist).toEqual([]);
+  });
+
+  it("does not write when the edit changed nothing", async () => {
+    await mountOptions({ siteBlacklist: ["youtube.com"] });
+    const write = vi.spyOn(globalThis.chrome.storage.sync, "set");
+    typeText(field(), "https://www.youtube.com/"); // normalizes to what is already stored
+    await flush();
+    expect(write).not.toHaveBeenCalled();
+    expect(field().value).toBe("youtube.com");
+    write.mockRestore();
+  });
+
+  it("picks up an edit made elsewhere (the popup switch) unless the field is being typed in", async () => {
+    await mountOptions({ siteBlacklist: ["a.com"] });
+    act(() => globalThis.chrome.storage.sync.set({ siteBlacklist: ["a.com", "b.com"] }));
+    await flush();
+    expect(field().value).toBe("a.com\nb.com");
+
+    field().focus();
+    typeText(field(), "a.com\nhalf-typ", false);
+    act(() => globalThis.chrome.storage.sync.set({ siteBlacklist: ["a.com", "b.com", "c.com"] }));
+    await flush();
+    expect(field().value).toBe("a.com\nhalf-typ");
+  });
+});
+
 describe("Options · Live sync", () => {
   it("clamps the stored reserve and persists Home/End slider commits", async () => {
     const { get } = await mountOptions({ liveSyncBufferReserve: 99 });

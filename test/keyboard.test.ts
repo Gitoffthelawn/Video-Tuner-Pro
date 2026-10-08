@@ -51,6 +51,7 @@ function release(code: string, init: KeyboardEventInit = {}): void {
 describe("keyboard shortcuts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    S.siteDisabled = false;
     S.keyboardEnabled = true;
     S.viewerAutoEnabled = true;
     S.currentSpeed = 1.0;
@@ -115,6 +116,21 @@ describe("keyboard shortcuts", () => {
     S.keyboardEnabled = false;
     press("KeyD");
     expect(m.setSpeed).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on a blacklisted site — no speed, viewer or overlay key", () => {
+    S.siteDisabled = true;
+    for (const code of ["KeyD", "KeyA", "KeyR", "KeyS", "KeyX", "KeyV", "KeyT", "KeyO"]) {
+      press(code);
+    }
+    S.presets = [1.75];
+    S.presetKeys = ["KeyG"];
+    press("KeyG");
+    expect(m.setSpeed).not.toHaveBeenCalled();
+    expect(m.resetToSaved).not.toHaveBeenCalled();
+    expect(m.toggleViewer).not.toHaveBeenCalled();
+    expect(m.primaryCalls).toBe(0);
+    expect(document.querySelector("[data-vtp-launcher]")).toBeNull();
   });
 
   it("ignores keys combined with Ctrl / Cmd / Alt", () => {

@@ -76,6 +76,8 @@ export const KEY_CATEGORY: Record<string, Category> = {
   overlayButton: "general",
   overlayBtnPos: "general",
   overlayPanelPos: "general",
+  // Hostnames where the extension stays completely off (see ./site-blacklist.ts).
+  siteBlacklist: "general",
   viewerAutoEnabled: "general",
   viewerAutoPlaybackOnly: "general",
   viewerAuto: "general", // legacy global fallback

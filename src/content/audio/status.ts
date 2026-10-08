@@ -8,7 +8,7 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function engageAudio(attempt = 0): void {
   clearTimeout(retryTimer);
-  if (!S.audioCompEnabled) return;
+  if (!S.audioCompEnabled || S.siteDisabled) return;
   const res = applyAudioComp();
   if (res.engaged > 0 || res.reason === "inuse") return; // engaged, or can't (already in use)
   if (attempt < 6) {

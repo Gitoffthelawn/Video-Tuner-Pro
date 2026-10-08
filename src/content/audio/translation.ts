@@ -18,5 +18,5 @@ export function translationActive(): boolean {
 }
 
 export function compOn(): boolean {
-  return S.audioCompEnabled && !translationActive();
+  return S.audioCompEnabled && !S.siteDisabled && !translationActive();
 }

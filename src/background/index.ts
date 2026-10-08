@@ -345,8 +345,9 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // The toolbar icon has no default_popup, so a click reaches us here. Ask the top
 // frame to toggle the content script's in-page overlay iframe — it isn't capped by
-// the native popup's size. Pages without a content script (privileged pages, the
-// store, PDF viewer) have no video to control, so a click there is simply a no-op.
+// the native popup's size. It opens on any page the content script runs on — video or
+// not, blacklisted site or not. Pages without a content script (privileged pages, the
+// store, PDF viewer) have nothing to host it, so a click there is simply a no-op.
 if (api.action && api.action.onClicked) {
   api.action.onClicked.addListener((tab) => {
     const tabId = tab?.id;

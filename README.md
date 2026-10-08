@@ -26,6 +26,7 @@ themes, in 10 languages, with no accounts and no tracking.
 - **Player quality control** — the Viewer exposes Auto and fixed quality choices when the underlying player makes them available, without replacing the player or its media source.
 - **Super theater (YouTube)** — one toggle makes theater mode fill the whole window; the header hides itself.
 - **On-video readout** — optional badge showing the current speed and how much time is really left at that speed.
+- **Off per site** — one switch in the popup (or a list in Settings → General) turns the extension completely off on a site and its subdomains: no speed changes, audio processing, buttons, shortcuts or layout tweaks. Everything is handed back at normal speed immediately, and switching it back on needs no reload.
 - **Live graphs** — see the audio levels and the live-stream buffer in real time.
 - **Light & dark themes**, 10 languages, and **no tracking**. SponsorBlock markers, when explicitly enabled, query SponsorBlock with the current YouTube video ID; all other processing stays in the browser.
 
@@ -34,6 +35,7 @@ themes, in 10 languages, with no accounts and no tracking.
 1. Open a page with a video and click the extension icon.
 2. Drag the slider or pick a preset — the speed changes instantly. The toolbar icon shows the current speed.
 3. Pick a scope — **Global**, **Site**, or **Channel** (when a stable channel identity is available) — and click **Save** to keep that speed; **Reset** forgets the saved value for that scope. The ⟲ button by the readout (or the **R** key) drops a manual change and re-applies the saved speed without deleting anything.
+4. Click the icon on any page — even one with no video, like a music site — and the same popup opens, centered. **Disable on this site** switches Video Tuner off there; the same switch brings it back.
 
 Turn on **Show speed & time on video** to see the speed and the real remaining
 time right on the player — it appears when you move the mouse and fades away on

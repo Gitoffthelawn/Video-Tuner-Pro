@@ -362,7 +362,7 @@ function hookBadgeMouse(): void {
 }
 
 function scheduleTimeBadgeUpdate(): void {
-  if (badgeUpdateFrame != null) return;
+  if (S.siteDisabled || badgeUpdateFrame != null) return;
   badgeUpdateFrame = requestAnimationFrame(() => {
     badgeUpdateFrame = null;
     updateTimeBadge();
@@ -381,7 +381,7 @@ export function updateTimeBadge(
   snapshot: { video?: HTMLVideoElement | null; stream?: boolean; anchor?: HTMLElement | null } = {},
 ): void {
   removeCurrentStaleBadgeHost();
-  if (!S.streamBadge && !S.showRemaining) {
+  if (S.siteDisabled || (!S.streamBadge && !S.showRemaining)) {
     syncBadgePopover(false);
     if (timeBadgeEl) timeBadgeEl.style.display = "none";
     badgeVideo = null;

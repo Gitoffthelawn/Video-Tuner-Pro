@@ -31,10 +31,7 @@ function pointer(type: string, init: Record<string, unknown>): Event {
 beforeAll(async () => {
   document.body.innerHTML =
     '<div id="root"></div><div class="header"><span>Video Tuner</span></div>';
-  Object.defineProperty(document.documentElement, "scrollHeight", {
-    value: 540,
-    configurable: true,
-  });
+  document.documentElement.getBoundingClientRect = () => ({ height: 539.4 }) as DOMRect;
   Object.defineProperty(window, "parent", {
     value: { postMessage: fx.postMessage },
     configurable: true,

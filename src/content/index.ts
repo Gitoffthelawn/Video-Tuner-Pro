@@ -13,14 +13,16 @@ import {
   type AutoSlowSettings,
 } from "./core/resolve.js";
 import { normalizePresetSet } from "../shared/presets.js";
+import { isSiteBlacklisted, normalizeSiteList } from "../shared/site-blacklist.js";
 import { S } from "./state.js";
-import { applyAll, reassertRate } from "./speed.js";
+import { applyAll, reassertRate, resetMedia } from "./speed.js";
 import { controlLive } from "./live/sync.js";
 import { isLive, liveVideoFrom, onStreamPage } from "./live/detection.js";
 import { applyResolvedTargetFromStore } from "./live/target.js";
 import { applyAudioComp } from "./audio/compressor.js";
 import { engageAudio } from "./audio/status.js";
 import { updateTimeBadge, flashBadge, ownsBadgeNode } from "./badge/overlay.js";
+import { updateBadge } from "./badge/icon.js";
 import { updateLauncher, ownsLauncherNode, toggleOverlayPopup } from "./overlay/launcher.js";
 import {
   exitViewer,
@@ -31,7 +33,7 @@ import {
 } from "./viewer.js";
 import { REGISTRY_KEYS, loadRegistry, applyRegistryChanges } from "./settings/registry.js";
 import { audioSamplingReady, recordAudioSample, A_HIST_MS } from "./audio/metering.js";
-import { autoSlowSample, AUTOSLOW_MS } from "./audio/autoslow.js";
+import { autoSlowSample, AUTOSLOW_MS, releaseAutoSlow } from "./audio/autoslow.js";
 import { applyResolvedAutoSlowFromStore } from "./audio/autoslow-config.js";
 import { applyResolvedViewerAutoFromStore } from "./viewer-auto.js";
 import { applyResolvedViewerFitFromStore } from "./viewer-fit.js";
@@ -52,7 +54,7 @@ import {
 } from "./videos.js";
 import "./messaging.js"; // registers the popup message handler
 import "./keyboard.js"; // registers the keyboard-shortcut listener
-import "./theater.js"; // applies the YouTube "super theater" layout when enabled
+import { syncSuperTheater } from "./theater.js"; // applies the YouTube "super theater" layout when enabled
 import { channelKeys, sameChannelIdentity, sameChannelKeys } from "./channel.js";
 import { applyChatFrameSkin, initChatFrameSkin } from "./chat/skin.js";
 
@@ -93,6 +95,9 @@ let observerScheduled = false;
 let mediaScheduled = false;
 let mediaShouldFlashBadge = false;
 let lastChannelKeys: string[] = []; // re-resolve speed when the channel identity changes
+// Timers + media tracking run only while the extension is active on this page: a
+// blacklisted site never starts them, and switching a site off stops them again.
+let running = false;
 
 // Background-tick cadence: 1s while the page has a video, backing off toward 30s on
 // pages with none so idle tabs stop walking the DOM every second. Media events and
@@ -196,6 +201,44 @@ function applyResolved(
   S.speedScope = r.scope;
 }
 
+// Timers + media tracking start once the first settings read says the site is
+// enabled, so a blacklisted site never pays for them. Idempotent: loadSpeed lands
+// here after every (re-)enable, which is why switching a site back on needs no reload.
+function startRuntime(): void {
+  if (running) return;
+  running = true;
+  tickInterval = TICK_MIN;
+  if (document.documentElement) {
+    startObserver();
+  } else {
+    document.addEventListener("DOMContentLoaded", startObserver, listenerOptions());
+  }
+  if (!document.hidden) startTimers();
+}
+
+// Flip the per-site kill switch (S.siteDisabled). Going inert hands the page back as
+// the extension found it; going live again is loadSpeed's job (the caller re-runs it).
+// teardown() is no use here: it aborts the shared listener signal for good.
+function setSiteDisabled(disabled: boolean): void {
+  if (S.siteDisabled === disabled) return;
+  S.siteDisabled = disabled;
+  syncSuperTheater();
+  if (!disabled) return;
+  updateBadge(); // clears a toolbar badge a media event set before the first settings read
+  if (!running) return; // never started here, so there is nothing of ours to undo
+  running = false;
+  stopTimers();
+  exitViewer();
+  releaseAutoSlow();
+  resetMedia();
+  applyAudioComp(); // existing graphs go transparent (compOn() is off), none are added
+  updateTimeBadge();
+  updateLauncher();
+  stopTracking();
+  S.speedManual = false;
+  S.holdActive = false;
+}
+
 function loadSpeed() {
   if (!ctxValid()) return;
   STORE.get(
@@ -211,6 +254,7 @@ function loadSpeed() {
       "syncTargets",
       "syncTargetChannels",
       "syncTargetGlobal",
+      "siteBlacklist",
       "badgePos",
       "badgePinned",
       "overlayBtnPos",
@@ -230,6 +274,7 @@ function loadSpeed() {
       ...REGISTRY_KEYS,
     ],
     (result) => {
+      setSiteDisabled(isSiteBlacklisted(getDomain(), normalizeSiteList(result.siteBlacklist)));
       const domains = (result.domains || {}) as Record<string, number>;
       const channels = (result.channels || {}) as Record<string, number>;
       const badgePos = (result.badgePos || {}) as Record<string, { fx: number; fy: number }>;
@@ -244,6 +289,9 @@ function loadSpeed() {
         ((result.overlayPanelPos || {}) as Record<string, { fx: number; fy: number }>)[
           getDomain()
         ] || null;
+      // Inert here: nothing more to load, nothing to start. (The panel spot above is the
+      // exception — the toolbar icon still opens the popup where the user left it.)
+      if (S.siteDisabled) return;
       // Simple scalars/flags (badge toggles, keyboard, steps, overlay button, audio
       // compressor params, auto-slow dynamics) load from the registry in one pass.
       loadRegistry(result);
@@ -314,6 +362,7 @@ function loadSpeed() {
       // play event then sees the default auto mode (off), so retry once the
       // persisted Viewer mode and playback-only behavior are available.
       maybeAutoOpenPlayingPrimary();
+      startRuntime();
     },
   );
 }
@@ -375,6 +424,7 @@ function tick() {
     teardown();
     return;
   } // orphaned after a reload — stop the dead instance
+  if (S.siteDisabled) return;
   const now = Date.now();
   let videos = collectVideos();
   const reconcileMs = videos.length ? RECONCILE_MEDIA_MS : RECONCILE_IDLE_MS;
@@ -436,6 +486,7 @@ function scheduleMediaPass(flashBadgeAfterApply: boolean): void {
       teardown();
       return;
     }
+    if (S.siteDisabled) return;
     applyAll();
     controlLive();
     syncAudioSampler();
@@ -456,6 +507,7 @@ document.addEventListener(
       teardown();
       return;
     }
+    if (S.siteDisabled || !running) return;
     if (document.hidden) stopTimers();
     else {
       tickInterval = TICK_MIN;
@@ -465,8 +517,6 @@ document.addEventListener(
   listenerOptions(),
 );
 
-if (!document.hidden) startTimers();
-
 // Apply the speed the moment ANY video starts up — a second player added to the
 // page would otherwise wait for the next tick/mutation pass and could begin at
 // 1×. Media events don't bubble, but a capture-phase listener still sees them.
@@ -475,7 +525,7 @@ for (const ev of ["play", "loadedmetadata", "durationchange"]) {
     ev,
     (e) => {
       if (!(e.target instanceof HTMLMediaElement)) return;
-      if (!ctxValid()) return;
+      if (!ctxValid() || S.siteDisabled) return;
       const streamPage = onStreamPage();
       if (e.type === "durationchange" && streamPage) return;
       wake(TICK_MIN); // media showed up — reset any no-video backoff to the fast cadence
@@ -507,7 +557,7 @@ document.addEventListener(
 document.addEventListener(
   "ratechange",
   (e) => {
-    if (!S.forceRate) return;
+    if (S.siteDisabled || !S.forceRate) return;
     const t = e.target;
     if (!(t instanceof HTMLMediaElement)) return;
     if (t instanceof HTMLAudioElement && !S.audioSpeedEnabled) return; // not ours to control
@@ -530,6 +580,7 @@ function scheduleReapply() {
       teardown();
       return;
     }
+    if (S.siteDisabled) return;
     applyAll();
     controlLive();
     syncAudioSampler();
@@ -545,6 +596,7 @@ function scheduleReapply() {
 // calling scheduleReapply only when media changed. ownsBadgeNode keeps our own badge
 // shadow root from being observed (its writes would otherwise feed back in).
 function startObserver() {
+  if (!running) return; // switched off again before DOMContentLoaded
   startTracking({
     onMediaChange: scheduleReapply,
     onContextDead: teardown,
@@ -552,11 +604,6 @@ function startObserver() {
     onVideoPlay: maybeAutoOpenViewer,
   });
   lastReconcileAt = Date.now();
-}
-if (document.documentElement) {
-  startObserver();
-} else {
-  document.addEventListener("DOMContentLoaded", startObserver, listenerOptions());
 }
 
 // attachShadow() itself emits no DOM mutation. A page can therefore add a host,
@@ -570,6 +617,7 @@ window.addEventListener(
       teardown();
       return;
     }
+    if (S.siteDisabled) return;
     if (reconcile()) scheduleReapply();
   },
   listenerOptions({ once: true }),
@@ -581,6 +629,24 @@ function handleStorageChange(
   area: string,
 ): void {
   if (!OUR_AREAS.has(area)) return;
+  if (changes.siteBlacklist) {
+    const wasDisabled = S.siteDisabled;
+    setSiteDisabled(
+      isSiteBlacklisted(getDomain(), normalizeSiteList(changes.siteBlacklist.newValue)),
+    );
+    // Switched back on: S is stale from before, so re-read everything and restart.
+    if (wasDisabled && !S.siteDisabled) loadSpeed();
+  }
+  // Tracked even while the site is off: the toolbar icon still opens the popup there,
+  // and a dragged panel would snap back to its old spot otherwise.
+  if (changes.overlayPanelPos) {
+    const map =
+      (changes.overlayPanelPos.newValue as
+        | Record<string, { fx: number; fy: number }>
+        | undefined) || {};
+    S.overlayPanelPos = map[getDomain()] || null;
+  }
+  if (S.siteDisabled) return;
   if (changes.liveSync) S.liveSyncEnabled = !!changes.liveSync.newValue;
   // Any allowed-delay scope key changed → re-resolve the chain (also re-runs
   // controlLive). The legacy liveSyncTarget is folded in as the old global.
@@ -635,13 +701,6 @@ function handleStorageChange(
       {};
     S.overlayBtnPos = map[getDomain()] || null;
     updateLauncher();
-  }
-  if (changes.overlayPanelPos) {
-    const map =
-      (changes.overlayPanelPos.newValue as
-        | Record<string, { fx: number; fy: number }>
-        | undefined) || {};
-    S.overlayPanelPos = map[getDomain()] || null;
   }
   if (changes.autoSlowSites || changes.autoSlowChannels || changes.autoSlowGlobal) {
     applyResolvedAutoSlowFromStore(); // re-resolve the scoped target

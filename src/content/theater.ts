@@ -7,6 +7,7 @@ import { api } from "./platform/browser.js";
 import { STORE, OUR_AREAS } from "./platform/storage.js";
 import { onStreamPage } from "./live/detection.js";
 import { contentSignal } from "./lifecycle.js";
+import { S } from "./state.js";
 
 const ATTR = "vtp-super-theater";
 const STYLE_ID = "vtp-super-theater-style";
@@ -66,8 +67,9 @@ function ensureStyle(): void {
 
 export function applySuperTheater(on: boolean): void {
   if (!isYouTube()) return;
-  ensureStyle();
-  document.documentElement.toggleAttribute(ATTR, on);
+  // A blacklisted site gets no layout changes — and loses ones already applied.
+  if (!S.siteDisabled) ensureStyle();
+  document.documentElement.toggleAttribute(ATTR, on && !S.siteDisabled);
 }
 
 // Streams and regular videos each have their own super-theater setting, so a
@@ -76,24 +78,27 @@ export function applySuperTheater(on: boolean): void {
 function effectiveKey(): "superTheater" | "superTheaterStream" {
   return onStreamPage() ? "superTheaterStream" : "superTheater";
 }
-function reapply(): void {
+
+// Also how index.ts re-evaluates the layout when the site is switched off or on.
+export function syncSuperTheater(): void {
+  if (!isYouTube()) return;
   const key = effectiveKey();
   STORE.get([key], (r) => applySuperTheater(r[key] === true));
 }
 
 if (isYouTube()) {
-  reapply();
+  syncSuperTheater();
   // The live-state flag (data-vtp-live, set by the MAIN-world probe) lands a beat
   // after load and flips on SPA navigation between a video and a live page — so
   // re-pick the setting whenever it changes.
-  const observer = new MutationObserver(reapply);
+  const observer = new MutationObserver(syncSuperTheater);
   observer.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["data-vtp-live"],
   });
   const onStorageChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
     if (!OUR_AREAS.has(area)) return;
-    if (changes.superTheater || changes.superTheaterStream) reapply();
+    if (changes.superTheater || changes.superTheaterStream) syncSuperTheater();
   };
   api.storage.onChanged.addListener(onStorageChange);
   contentSignal.addEventListener(

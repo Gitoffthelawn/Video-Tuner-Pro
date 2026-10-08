@@ -363,7 +363,7 @@ export function setViewerState(format: ViewerFormat | "off", liveHint = false): 
     else document.dispatchEvent(new Event(CLOSE_EVENT));
     return;
   }
-  if (!S.viewerAutoEnabled) return;
+  if (S.siteDisabled || !S.viewerAutoEnabled) return;
   if (viewerFormat() === format) return;
   if (fmt) {
     markViewerSessionManual();
@@ -2825,7 +2825,7 @@ function autoOpenAllowedOnCurrentPage(): boolean {
 }
 
 export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
-  if (window.top !== window) return;
+  if (window.top !== window || S.siteDisabled) return;
   // Our own mirror/backdrop videos live inside the overlay and are started
   // with .play() during enter(). Ignore them to avoid recursively opening a new
   // viewer for the viewer's own media.
@@ -2874,7 +2874,7 @@ export function maybeAutoOpenViewer(t: HTMLVideoElement): void {
 }
 
 export function maybeAutoOpenPlayingPrimary(): void {
-  if (!autoOpenAllowedOnCurrentPage()) return;
+  if (S.siteDisabled || !autoOpenAllowedOnCurrentPage()) return;
   const t = primaryVideo();
   // A YouTube hover preview can keep playing while the SPA changes `/` to
   // `/watch`. No second `play` event is guaranteed, so re-evaluate the already
@@ -2913,7 +2913,7 @@ async function enter(
   target?: HTMLVideoElement,
   opts: { liveHint?: boolean; autoTriggered?: boolean } = {},
 ): Promise<void> {
-  if (window.top !== window) return;
+  if (window.top !== window || S.siteDisabled) return;
   const v = target ?? primaryVideo();
   if (!v || currentFullscreenElement() || fmt || exiting || overlay || isDrmVideo(v)) return;
   const wasPlayingAtEntry = !v.paused && !v.ended;
@@ -3309,7 +3309,7 @@ export function exitViewer(): void {
 // format → switch; open in the same format → close. So V and T each toggle
 // their own view and jump straight between the two.
 export function toggleViewer(format: ViewerFormat): void {
-  if (!S.viewerAutoEnabled) return;
+  if (S.siteDisabled || !S.viewerAutoEnabled) return;
   if (fmt) {
     if (fmt === format) exitViewer();
     else {

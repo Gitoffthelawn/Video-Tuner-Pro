@@ -75,6 +75,7 @@ export function controlLive(
     teardown();
     return;
   }
+  if (S.siteDisabled) return; // the live rate is written only from here — keep the page's own
   const now = Date.now();
   if (now - lastControlAt < 250) return;
   lastControlAt = now;

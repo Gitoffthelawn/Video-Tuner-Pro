@@ -28,6 +28,7 @@ describe("categoryOf", () => {
     expect(categoryOf("viewerChatMode")).toBe("general");
     expect(categoryOf("viewerChatOpacity")).toBe("general");
     expect(categoryOf("viewerChatInput")).toBe("general");
+    expect(categoryOf("siteBlacklist")).toBe("general");
   });
   it("falls back to general for unknown keys", () => {
     expect(categoryOf("somethingNew")).toBe("general");
@@ -43,7 +44,7 @@ describe("KEYS_BY_CATEGORY", () => {
 
   it("includes general settings that category migration must carry between areas", () => {
     expect(KEYS_BY_CATEGORY.general).toEqual(
-      expect.arrayContaining(["glassOpacity", "sponsorMarks", "overlayPanelPos"]),
+      expect.arrayContaining(["glassOpacity", "sponsorMarks", "overlayPanelPos", "siteBlacklist"]),
     );
   });
 });

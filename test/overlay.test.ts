@@ -103,6 +103,7 @@ beforeEach(() => {
   h.buffer = 0;
   h.limited = false;
   h.primaryCalls = 0;
+  S.siteDisabled = false;
   S.showRemaining = true;
   S.streamBadge = true;
   S.badgePos = null;
@@ -184,6 +185,33 @@ describe("updateTimeBadge — visibility", () => {
 
     expect(badgeShown()).toBe(false);
     expect(h.primaryCalls).toBe(0);
+  });
+
+  it("hides a shown badge on a blacklisted site, without walking media", () => {
+    h.primary = fakeVideo();
+    updateTimeBadge();
+    expect(badgeShown()).toBe(true);
+    h.primaryCalls = 0;
+
+    S.siteDisabled = true;
+    updateTimeBadge();
+
+    expect(badgeShown()).toBe(false);
+    expect(h.primaryCalls).toBe(0);
+  });
+
+  it("never builds a badge on a blacklisted site, and layout events schedule no frame", () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame");
+    S.siteDisabled = true;
+    h.primary = fakeVideo();
+
+    updateTimeBadge();
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("scroll"));
+
+    expect(document.querySelector("[data-vtp-badge]")).toBeNull();
+    expect(raf).not.toHaveBeenCalled();
+    raf.mockRestore();
   });
 
   it("hides on a live stream when the stream badge is disabled", () => {

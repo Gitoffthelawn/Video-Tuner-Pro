@@ -6,6 +6,11 @@ import { DEFAULT_PRESETS, DEFAULT_PRESET_KEYS } from "../shared/presets.js";
 import { DEFAULT_KEYMAP, type Keymap } from "../shared/keymap.js";
 
 export const S = {
+  // The per-site kill switch (stored `siteBlacklist` matches this host): every
+  // module that writes a rate, captures audio, mounts UI or reacts to a key checks
+  // it, so a blacklisted site stays untouched without tearing the content script
+  // down (teardown is one-way — re-enabling at runtime must keep working).
+  siteDisabled: false,
   currentSpeed: 1.0,
   // The user's intended speed for NON-live playback (restored when a page turns
   // out not to be a live stream).

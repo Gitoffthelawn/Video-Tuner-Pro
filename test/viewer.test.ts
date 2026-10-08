@@ -166,6 +166,7 @@ beforeEach(() => {
   h.primary = null;
   h.videos = [];
   S.viewerAutoEnabled = true;
+  S.siteDisabled = false;
   S.viewerAuto = "off";
   S.viewerAutoPlaybackOnly = false;
   S.showRemaining = false;
@@ -2203,6 +2204,70 @@ describe("auto pop-out on play", () => {
     v3.play();
     await flush();
     expect(viewerFormat()).toBeNull();
+  });
+});
+
+describe("viewer on a blacklisted site", () => {
+  beforeEach(() => {
+    S.siteDisabled = true;
+  });
+
+  it("neither the button/hotkey nor a popup command opens it", async () => {
+    const { v } = makeVideo();
+    h.primary = v;
+
+    await openViewer("normal");
+    await openViewer("theater");
+    setViewerState("normal");
+    await flush();
+
+    expect(viewerFormat()).toBeNull();
+    expect(overlayEl()).toBeNull();
+  });
+
+  it("does not auto-open on play, nor re-check an already playing video", async () => {
+    S.viewerAuto = "theater";
+    const { v } = makeVideo();
+    h.primary = v;
+    installCapture(v);
+
+    v.play();
+    maybeAutoOpenPlayingPrimary();
+    await flush();
+
+    expect(viewerFormat()).toBeNull();
+    expect(overlayEl()).toBeNull();
+  });
+
+  it("drops an auto-open that was already pending when the site was switched off", async () => {
+    vi.useFakeTimers();
+    S.viewerAuto = "theater";
+    S.viewerAutoPlaybackOnly = true; // arms the play-stability debounce
+    const { v } = makeVideo();
+    h.primary = v;
+    installCapture(v);
+    S.siteDisabled = false;
+    v.play(); // schedules the pending open…
+    S.siteDisabled = true; // …then the site is switched off
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(viewerFormat()).toBeNull();
+    expect(overlayEl()).toBeNull();
+  });
+
+  it("still lets an open viewer be closed (the switch-off path)", async () => {
+    const { v } = makeVideo();
+    h.primary = v;
+    S.siteDisabled = false;
+    await openViewer("normal");
+    expect(viewerFormat()).toBe("normal");
+
+    S.siteDisabled = true;
+    exitViewer();
+    await flush();
+
+    expect(overlayEl()).toBeNull();
   });
 });
 

@@ -114,6 +114,24 @@ describe("autoSlowSample", () => {
     expect(m.streamReads).toBe(2);
   });
 
+  it("hands the rate back and reads nothing on a blacklisted site", async () => {
+    const read = vi.fn();
+    const v = makeVideo();
+    m.primary = v;
+    m.graphs.set(v, makeGraph(read));
+    const { autoSlowSample } = await loadAutoSlow();
+    const { S } = await import("../src/content/state.js"); // same instance loadAutoSlow just reset
+    S.autoSlowFactor = 0.8;
+    S.siteDisabled = true;
+
+    autoSlowSample();
+
+    expect(S.autoSlowFactor).toBe(1);
+    expect(m.reapply).toHaveBeenCalledTimes(1);
+    expect(read).not.toHaveBeenCalled();
+    expect(m.primaryReads).toBe(0);
+  });
+
   it("releases the slowdown when the tab is hidden", async () => {
     const { autoSlowSample } = await loadAutoSlow();
     const { S } = await import("../src/content/state.js");

@@ -249,6 +249,12 @@
   }
 }
 
+/* The other cards put their expand button in this slot; here the text itself must push
+   the switch to the right edge. */
+.site-off .sec-text {
+  flex: 1;
+}
+
 .switch-sub {
   margin-top: var(--space-0-5);
   font-size: 11px;

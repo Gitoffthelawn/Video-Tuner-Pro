@@ -58,4 +58,31 @@ describe("toolbar badge updates", () => {
       { action: "icon", clear: true },
     ]);
   });
+
+  it("clears the toolbar badge when the site is switched off, then stays quiet", async () => {
+    const { updateBadge } = await import("../src/content/badge/icon.js");
+    const { S } = await import("../src/content/state.js");
+    h.videos = [document.createElement("video")];
+
+    updateBadge();
+    S.siteDisabled = true;
+    updateBadge();
+    updateBadge();
+
+    expect(h.messages).toEqual([
+      { action: "icon", text: "1.0", live: false },
+      { action: "icon", clear: true },
+    ]);
+  });
+
+  it("never sets a toolbar badge on a blacklisted site", async () => {
+    const { updateBadge } = await import("../src/content/badge/icon.js");
+    const { S } = await import("../src/content/state.js");
+    h.videos = [document.createElement("video")];
+    S.siteDisabled = true;
+
+    updateBadge();
+
+    expect(h.messages).toEqual([]);
+  });
 });

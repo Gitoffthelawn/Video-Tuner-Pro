@@ -25,7 +25,10 @@ function wireEmbeddedOverlay(): void {
   document.documentElement.classList.add("vtp-embedded");
   const post = (data: Record<string, unknown>) =>
     window.parent.postMessage({ type: "vtp-overlay", ...data }, "*");
-  const report = () => post({ height: document.documentElement.scrollHeight });
+  // scrollHeight never drops below the iframe's own height, so the panel could not
+  // shrink for the short "disabled on this site" view; the rect tracks the content.
+  const report = () =>
+    post({ height: Math.ceil(document.documentElement.getBoundingClientRect().height) });
   new ResizeObserver(report).observe(document.documentElement);
   report();
   document.addEventListener("keydown", (e) => {

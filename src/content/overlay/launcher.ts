@@ -77,6 +77,9 @@ let pdCx = 0,
 let frameH = FALLBACK_H;
 let frameScale = 1; // last fit-scale from layoutFrame, reused by the open animation
 let open = false;
+// The popup was opened with no video to anchor to (a page without one, or a
+// blacklisted site) — the video-gone check in updateLauncher must leave it alone.
+let openedWithoutVideo = false;
 let hideTimer: Timer | undefined;
 let mouseHooked = false;
 let fabVideo: HTMLElement | null = null; // cached video frame/anchor so mousemove stays cheap
@@ -491,7 +494,7 @@ function resetFabPos(): void {
 }
 
 function flashFab(): void {
-  if (!fab) return;
+  if (!fab || !fabVideo) return; // no video → the button never shows, popup open or not
   fab.style.opacity = "1";
   fab.style.pointerEvents = "auto";
   clearTimeout(hideTimer);
@@ -642,6 +645,7 @@ function openPopup(): void {
   }
   closeRadial();
   open = true;
+  openedWithoutVideo = !fabVideo;
   fab?.setAttribute("data-popup-open", "true"); // morphs the icon play → ✕
   syncFabExpanded();
   if (!backdrop) {
@@ -711,6 +715,7 @@ function openPopup(): void {
 function closePopup(): void {
   if (!open) return;
   open = false;
+  openedWithoutVideo = false;
   fab?.setAttribute("data-popup-open", "false"); // morphs the icon ✕ → play
   syncFabExpanded();
   if (frame) frame.style.display = "none";
@@ -724,18 +729,22 @@ function togglePopup(): void {
   else openPopup();
 }
 
-// Open/close the overlay popup from the keyboard, independent of the launcher
-// button's visibility setting — mounts the machinery on demand so the hotkey
-// works even when the button is turned off.
+// Open/close the overlay popup from the toolbar icon or the keyboard, independent of
+// the launcher button's visibility setting — mounts the machinery on demand so it
+// works even when the button is turned off, and on pages without any video.
 export function toggleOverlayPopup(): void {
   if (!ctxValid()) return;
-  fabVideo = viewerAnchorVideo() ?? primaryVideo();
-  if (!fabVideo) return; // nothing to overlay
+  // The tick backs off to 30s on video-less pages, so don't trust a host the page
+  // detached to be cleaned up before this click.
+  resetDetachedHost();
+  // No video (or a blacklisted site, which tracks none) → no button to anchor; the
+  // popup just opens centered.
+  fabVideo = S.siteDisabled ? null : (viewerAnchorVideo() ?? primaryVideo());
   if (!host) mount();
   hookMouse();
   const parent = fullscreenOverlayHost();
   if (host && host.parentNode !== parent) parent.appendChild(host);
-  if (!dragging) positionFab(fabVideo);
+  if (fabVideo && !dragging) positionFab(fabVideo);
   togglePopup();
 }
 
@@ -1148,10 +1157,23 @@ function hideFab(): void {
   closeRadial();
 }
 
+// The button is hidden, but a popup opened from the toolbar icon or the hotkey stays
+// up (both are independent of the button). Keep its host attached to the right parent
+// (e.g. on entering fullscreen) and only hide the button.
+function hideFabKeepPopup(): void {
+  hideFab();
+  syncHostPopover(false);
+  if (open && host) {
+    const parent = fullscreenOverlayHost();
+    if (host.parentNode !== parent) parent.appendChild(host);
+  }
+}
+
 function resetDetachedHost(): void {
   if (!host || host.isConnected) return;
   radialOpen = false;
   open = false;
+  openedWithoutVideo = false;
   syncTopLayerAttr();
   dragging = false;
   dragPointerId = null;
@@ -1176,6 +1198,13 @@ export function applyLauncherGlass(): void {
 
 export function updateLauncher(snapshot: { primary?: HTMLVideoElement | null } = {}): void {
   resetDetachedHost();
+  // A blacklisted site gets no button and has no video to anchor to — but an open
+  // popup stays: it's where the site gets switched back on.
+  if (S.siteDisabled) {
+    fabVideo = null;
+    hideFabKeepPopup();
+    return;
+  }
   const paused = viewerLayoutPaused();
   const viewerAnchor = viewerAnchorVideo();
   if (viewerAnchor) {
@@ -1183,23 +1212,17 @@ export function updateLauncher(snapshot: { primary?: HTMLVideoElement | null } =
   } else if (!paused || !fabVideo) {
     fabVideo = snapshot.primary !== undefined ? snapshot.primary : primaryVideo();
   }
-  // No video to overlay → nothing can show; close any open popup and hide the FAB.
+  // No video to overlay → nothing can show; hide the FAB and close a popup that was
+  // anchored to the video (one opened without any stays).
   if (!fabVideo) {
-    syncHostPopover(false);
-    if (open) closePopup();
-    hideFab();
+    if (open && !openedWithoutVideo) closePopup();
+    hideFabKeepPopup();
     return;
   }
   if (S.overlayButton === "off" || !eligible()) {
     // The button is hidden in this mode, but a popup opened via the overlay hotkey
-    // stays up (the hotkey is independent of the button). Keep its host attached to
-    // the right parent (e.g. on entering fullscreen) and only hide the button.
-    hideFab();
-    syncHostPopover(false);
-    if (open && host) {
-      const parent = fullscreenOverlayHost();
-      if (host.parentNode !== parent) parent.appendChild(host);
-    }
+    // stays up (the hotkey is independent of the button).
+    hideFabKeepPopup();
     return;
   }
   if (!host) mount();
