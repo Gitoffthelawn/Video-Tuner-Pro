@@ -68,7 +68,14 @@ interface DvrState {
   active: boolean;
   lastMediaTime: number;
   pageKey: string;
+  pendingReset: { from: number; at: number } | null;
 }
+
+const DVR_BACK_JUMP_SECONDS = 3;
+// A jump to the very start of the timeline is how some players (Kick's IVS)
+// swap sources on a quality change; it only counts as a scrub once the position
+// stays behind where it was for this long.
+const DVR_RESET_CONFIRM_MS = 2500;
 
 let dvrSeenAt = 0;
 const dvrState = new WeakMap<HTMLVideoElement, DvrState>();
@@ -152,21 +159,38 @@ export function trackDvr(video: HTMLVideoElement): void {
     state = undefined;
   }
   if (!state) {
-    state = { active: false, lastMediaTime: 0, pageKey };
+    state = { active: false, lastMediaTime: 0, pageKey, pendingReset: null };
     dvrState.set(video, state);
   }
   const t = video.currentTime;
-  if (state.active && atLiveHead(video)) {
+  if (state.pendingReset) {
+    const { from, at } = state.pendingReset;
+    if (t >= from - DVR_BACK_JUMP_SECONDS) {
+      state.pendingReset = null;
+    } else if (
+      Date.now() - at >= DVR_RESET_CONFIRM_MS &&
+      !video.seeking &&
+      video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+    ) {
+      state.pendingReset = null;
+      state.active = true;
+      dvrSeenAt = Date.now();
+    }
+  } else if (state.active && atLiveHead(video)) {
     state.active = false;
     dvrSeenAt = 0;
   } else if (
     !state.active &&
     hasUnderlyingLiveSignal(video) &&
     state.lastMediaTime &&
-    t < state.lastMediaTime - 3
+    t < state.lastMediaTime - DVR_BACK_JUMP_SECONDS
   ) {
-    state.active = true;
-    dvrSeenAt = Date.now();
+    if (t < 1) {
+      state.pendingReset = { from: state.lastMediaTime, at: Date.now() };
+    } else {
+      state.active = true;
+      dvrSeenAt = Date.now();
+    }
   }
   state.lastMediaTime = t;
 }
