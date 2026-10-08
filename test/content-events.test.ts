@@ -15,6 +15,13 @@ const fx = vi.hoisted(() => ({
   exitViewer: vi.fn(),
   maybeAutoOpenViewer: vi.fn(),
   maybeAutoOpenPlayingPrimary: vi.fn(),
+  resetMedia: vi.fn(),
+  releaseAutoSlow: vi.fn(),
+  applyAudioComp: vi.fn(),
+  updateBadge: vi.fn(),
+  syncSuperTheater: vi.fn(),
+  loadRegistry: vi.fn(),
+  applyRegistryChanges: vi.fn(),
   recordBufferSample: vi.fn(),
   audioSamplingReady: false,
   recordAudioSample: vi.fn(),
@@ -96,7 +103,11 @@ vi.mock("../src/shared/presets.js", () => ({
   DEFAULT_PRESET_KEYS: [null],
   normalizePresetSet: () => ({ presets: [], keys: {} }),
 }));
-vi.mock("../src/content/speed.js", () => ({ applyAll: fx.applyAll, reassertRate: vi.fn() }));
+vi.mock("../src/content/speed.js", () => ({
+  applyAll: fx.applyAll,
+  reassertRate: vi.fn(),
+  resetMedia: fx.resetMedia,
+}));
 vi.mock("../src/content/live/sync.js", () => ({ controlLive: fx.controlLive }));
 vi.mock("../src/content/live/detection.js", () => ({
   isLive: (v: HTMLVideoElement) => v === fx.live,
@@ -105,7 +116,7 @@ vi.mock("../src/content/live/detection.js", () => ({
     live === undefined ? fx.onStream : !!live || fx.onStream,
 }));
 vi.mock("../src/content/live/target.js", () => ({ applyResolvedTargetFromStore: vi.fn() }));
-vi.mock("../src/content/audio/compressor.js", () => ({ applyAudioComp: vi.fn() }));
+vi.mock("../src/content/audio/compressor.js", () => ({ applyAudioComp: fx.applyAudioComp }));
 vi.mock("../src/content/audio/status.js", () => ({ engageAudio: vi.fn() }));
 vi.mock("../src/content/badge/overlay.js", () => ({
   updateTimeBadge: fx.updateTimeBadge,
@@ -130,8 +141,8 @@ vi.mock("../src/content/viewer.js", () => ({
 }));
 vi.mock("../src/content/settings/registry.js", () => ({
   REGISTRY_KEYS: [],
-  loadRegistry: vi.fn(),
-  applyRegistryChanges: vi.fn(),
+  loadRegistry: fx.loadRegistry,
+  applyRegistryChanges: fx.applyRegistryChanges,
 }));
 vi.mock("../src/content/audio/metering.js", () => ({
   audioSamplingReady: () => fx.audioSamplingReady,
@@ -141,6 +152,7 @@ vi.mock("../src/content/audio/metering.js", () => ({
 vi.mock("../src/content/audio/autoslow.js", () => ({
   autoSlowSample: fx.autoSlowSample,
   AUTOSLOW_MS: 1000,
+  releaseAutoSlow: fx.releaseAutoSlow,
 }));
 vi.mock("../src/content/audio/autoslow-config.js", () => ({
   applyResolvedAutoSlowFromStore: vi.fn(),
@@ -162,7 +174,8 @@ vi.mock("../src/content/videos.js", () => ({
 }));
 vi.mock("../src/content/messaging.js", () => ({}));
 vi.mock("../src/content/keyboard.js", () => ({}));
-vi.mock("../src/content/theater.js", () => ({}));
+vi.mock("../src/content/theater.js", () => ({ syncSuperTheater: fx.syncSuperTheater }));
+vi.mock("../src/content/badge/icon.js", () => ({ updateBadge: fx.updateBadge }));
 vi.mock("../src/content/channel.js", () => ({
   channelKeys: () => fx.keys,
   sameChannelIdentity: (a: string[], b: string[]) => a.some((key) => b.includes(key)),
@@ -176,6 +189,15 @@ async function loadIndex(): Promise<void> {
   vi.resetModules();
   const mod = await import("../src/content/index.js");
   teardownIndex = mod.teardown;
+}
+
+// The timers and the media registry start only once the first settings read says the
+// site is enabled (a blacklisted page never starts them) — so run that read the way the
+// real page does once whenReady fires.
+async function bootIndex(stored: Record<string, unknown> = {}): Promise<void> {
+  vi.mocked(STORE.get).mockImplementation((_keys, cb) => cb(stored));
+  await loadIndex();
+  fx.readyCallback?.();
 }
 
 let teardownIndex: (() => void) | null = null;
@@ -353,7 +375,7 @@ describe("content media events", () => {
 
 describe("content graph samplers", () => {
   it("tears down the orphaned context on the next background tick", async () => {
-    await loadIndex();
+    await bootIndex();
     fx.ctxValid = false;
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -367,7 +389,7 @@ describe("content graph samplers", () => {
     fx.live = v;
     fx.onStream = true;
     fx.onStream = true;
-    await loadIndex();
+    await bootIndex();
 
     await vi.advanceTimersByTimeAsync(2000);
 
@@ -378,7 +400,7 @@ describe("content graph samplers", () => {
   });
 
   it("does not run the buffer sampler before a page has video", async () => {
-    await loadIndex();
+    await bootIndex();
 
     await vi.advanceTimersByTimeAsync(3000);
 
@@ -386,7 +408,7 @@ describe("content graph samplers", () => {
   });
 
   it("backs the full reconcile off in an idle frame", async () => {
-    await loadIndex();
+    await bootIndex();
 
     await vi.advanceTimersByTimeAsync(29_000);
     expect(fx.reconcile).not.toHaveBeenCalled();
@@ -396,7 +418,7 @@ describe("content graph samplers", () => {
   });
 
   it("reconciles once after page startup to discover late shadow roots", async () => {
-    await loadIndex();
+    await bootIndex();
     fx.reconcile.mockReturnValueOnce(true);
 
     window.dispatchEvent(new Event("load"));
@@ -409,7 +431,7 @@ describe("content graph samplers", () => {
   });
 
   it("wakes an idle frame immediately when its observer finds media", async () => {
-    await loadIndex();
+    await bootIndex();
     await vi.advanceTimersByTimeAsync(20_000);
     fx.applyAll.mockClear();
 
@@ -426,7 +448,7 @@ describe("content graph samplers", () => {
   });
 
   it("starts the buffer sampler only after the video is identified as live", async () => {
-    await loadIndex();
+    await bootIndex();
     const v = media(false);
     fx.videos = [v];
     fx.live = v;
@@ -439,7 +461,7 @@ describe("content graph samplers", () => {
   });
 
   it("stops the buffer sampler when the page is no longer live", async () => {
-    await loadIndex();
+    await bootIndex();
     const v = media(false);
     fx.videos = [v];
     fx.live = v;
@@ -457,7 +479,7 @@ describe("content graph samplers", () => {
   });
 
   it("runs the audio sampler only while a running audio graph exists", async () => {
-    await loadIndex();
+    await bootIndex();
 
     await vi.advanceTimersByTimeAsync(3000);
     expect(fx.recordAudioSample).not.toHaveBeenCalled();
@@ -480,7 +502,7 @@ describe("content graph samplers", () => {
   });
 
   it("runs the auto-slow sampler only while auto-slow is enabled", async () => {
-    await loadIndex();
+    await bootIndex();
     const { S } = await import("../src/content/state.js");
 
     await vi.advanceTimersByTimeAsync(3000);
@@ -501,11 +523,8 @@ describe("content graph samplers", () => {
 
 describe("content channel alias changes", () => {
   it("keeps the existing alias ahead of a late-rendered YouTube canonical id", async () => {
-    vi.mocked(STORE.get).mockImplementation((_keys, cb) => {
-      cb({ domains: {}, channels: { "channel/UCabc": 2, "@h": 1.5 } });
-    });
     fx.keys = ["@h"];
-    await loadIndex();
+    await bootIndex({ domains: {}, channels: { "channel/UCabc": 2, "@h": 1.5 } });
     const { S } = await import("../src/content/state.js");
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -525,11 +544,8 @@ describe("content channel alias changes", () => {
   });
 
   it("drops a manual override when an SPA navigation reaches a different channel", async () => {
-    vi.mocked(STORE.get).mockImplementation((_keys, cb) => {
-      cb({ domains: {}, channels: { "@one": 1.5, "@two": 2 } });
-    });
     fx.keys = ["@one"];
-    await loadIndex();
+    await bootIndex({ domains: {}, channels: { "@one": 1.5, "@two": 2 } });
     const { S } = await import("../src/content/state.js");
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -543,5 +559,156 @@ describe("content channel alias changes", () => {
     expect(S.speedManual).toBe(false);
     expect(S.currentSpeed).toBe(2);
     expect(S.userSpeed).toBe(2);
+  });
+});
+
+describe("content site blacklist", () => {
+  const OFF = ["example.com"]; // getDomain() is mocked to example.com
+  // loadIndex() resets the module registry, so each boot has its own S — import it after.
+  const stateOf = async () => (await import("../src/content/state.js")).S;
+
+  it("a blacklisted page never starts its timers or media tracking, and writes nothing", async () => {
+    await bootIndex({ siteBlacklist: OFF });
+    const S = await stateOf();
+    expect(S.siteDisabled).toBe(true);
+
+    const v = media(false);
+    fx.videos = [v];
+    v.dispatchEvent(new Event("loadedmetadata"));
+    v.dispatchEvent(new Event("play"));
+    window.dispatchEvent(new Event("load"));
+    await nextFrame();
+    await vi.advanceTimersByTimeAsync(40_000);
+
+    expect(fx.startTracking).not.toHaveBeenCalled();
+    expect(fx.applyAll).not.toHaveBeenCalled();
+    expect(fx.controlLive).not.toHaveBeenCalled();
+    expect(fx.reconcile).not.toHaveBeenCalled();
+    expect(fx.updateTimeBadge).not.toHaveBeenCalled();
+    expect(fx.maybeAutoOpenPlayingPrimary).not.toHaveBeenCalled();
+    expect(fx.loadRegistry).not.toHaveBeenCalled();
+    // Nothing of ours ran here, so the page's own playback rate is left alone.
+    expect(fx.resetMedia).not.toHaveBeenCalled();
+    expect(fx.updateBadge).toHaveBeenCalled(); // only to clear a toolbar badge, if any
+  });
+
+  it("a tab regaining focus does not restart a blacklisted page", async () => {
+    await bootIndex({ siteBlacklist: OFF });
+
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(fx.applyAll).not.toHaveBeenCalled();
+  });
+
+  it("reads hand-edited entries the way the editor would have saved them", async () => {
+    await bootIndex({ siteBlacklist: ["https://WWW.Example.com/watch?v=1", 7, ""] });
+
+    expect((await stateOf()).siteDisabled).toBe(true);
+  });
+
+  it("keeps the popup panel's saved spot while the site is off", async () => {
+    await bootIndex({
+      siteBlacklist: OFF,
+      overlayPanelPos: { "example.com": { fx: 0.1, fy: 0.2 } },
+    });
+    const S = await stateOf();
+    expect(S.overlayPanelPos).toEqual({ fx: 0.1, fy: 0.2 });
+
+    // A drag saves a new spot; without this the next layout pass would snap the panel back.
+    fx.storageListener?.(
+      { overlayPanelPos: { newValue: { "example.com": { fx: 0.25, fy: 0.75 } } } },
+      "sync",
+    );
+
+    expect(S.overlayPanelPos).toEqual({ fx: 0.25, fy: 0.75 });
+  });
+
+  it("switching a running page off hands it back and stops everything", async () => {
+    await bootIndex();
+    const S = await stateOf();
+    expect(fx.startTracking).toHaveBeenCalledTimes(1);
+    S.speedManual = true;
+    S.holdActive = true;
+    vi.clearAllMocks(); // forget the boot pass; only the switch-off is under test
+
+    fx.storageListener?.({ siteBlacklist: { newValue: OFF } }, "sync");
+
+    expect(S.siteDisabled).toBe(true);
+    for (const fn of [
+      fx.exitViewer,
+      fx.releaseAutoSlow,
+      fx.resetMedia,
+      fx.applyAudioComp,
+      fx.updateTimeBadge,
+      fx.updateLauncher,
+      fx.updateBadge,
+      fx.stopTracking,
+      fx.syncSuperTheater,
+    ]) {
+      expect(fn).toHaveBeenCalledTimes(1);
+    }
+    expect(S.speedManual).toBe(false);
+    expect(S.holdActive).toBe(false);
+
+    // …and nothing keeps running: no tick, no media pass, no reaction to other settings.
+    const v = media(false);
+    fx.videos = [v];
+    v.dispatchEvent(new Event("play"));
+    await nextFrame();
+    await vi.advanceTimersByTimeAsync(40_000);
+    fx.storageListener?.({ keyboard: { newValue: false } }, "sync");
+    expect(fx.applyAll).not.toHaveBeenCalled();
+    expect(fx.controlLive).not.toHaveBeenCalled();
+    expect(fx.reconcile).not.toHaveBeenCalled();
+    expect(fx.applyRegistryChanges).not.toHaveBeenCalled();
+  });
+
+  it("switching a site back on re-reads its settings and restarts tracking and the tick", async () => {
+    await bootIndex();
+    fx.storageListener?.({ siteBlacklist: { newValue: OFF } }, "sync");
+    vi.clearAllMocks();
+    const S = await stateOf();
+
+    fx.storageListener?.({ siteBlacklist: { newValue: [] } }, "sync");
+
+    expect(S.siteDisabled).toBe(false);
+    expect(fx.loadRegistry).toHaveBeenCalled();
+    expect(fx.applyAll).toHaveBeenCalled();
+    expect(fx.startTracking).toHaveBeenCalledTimes(1);
+    expect(fx.syncSuperTheater).toHaveBeenCalledTimes(1);
+
+    fx.applyAll.mockClear();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fx.applyAll).toHaveBeenCalledWith(expect.objectContaining({ videos: [] }));
+  });
+
+  it("switching on a page that booted blacklisted starts it from scratch", async () => {
+    await bootIndex({ siteBlacklist: OFF });
+    const S = await stateOf();
+    expect(fx.startTracking).not.toHaveBeenCalled();
+    vi.mocked(STORE.get).mockImplementation((_keys, cb) => cb({ siteBlacklist: [] })); // the edit landed
+
+    fx.storageListener?.({ siteBlacklist: { newValue: [] } }, "sync");
+
+    expect(S.siteDisabled).toBe(false);
+    expect(fx.startTracking).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a running page alone when an edited list does not cover it", async () => {
+    await bootIndex();
+    const S = await stateOf();
+
+    fx.storageListener?.(
+      { siteBlacklist: { newValue: ["other.com", "notexample.com", "sub.example.com"] } },
+      "sync",
+    );
+
+    expect(S.siteDisabled).toBe(false);
+    expect(fx.resetMedia).not.toHaveBeenCalled();
+    expect(fx.stopTracking).not.toHaveBeenCalled();
   });
 });

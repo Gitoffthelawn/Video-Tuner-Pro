@@ -4,9 +4,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // The on-video launcher: a draggable button over the video that opens the popup
 // as an in-page overlay (an iframe). updateLauncher mounts/positions it by mode
 // ("off"/"fullscreen"/"always"); a click without a drag toggles the iframe.
-const h = vi.hoisted(() => ({ primary: null as unknown, drm: false }));
+const h = vi.hoisted(() => ({ primary: null as unknown, drm: false, primaryReads: 0 }));
 vi.mock("../src/content/videos.js", () => ({
-  primaryVideo: () => h.primary,
+  primaryVideo: () => {
+    h.primaryReads++;
+    return h.primary;
+  },
   isDrmVideo: () => h.drm,
 }));
 // runtime.getURL is the only browser API the launcher touches at mount/open time.
@@ -35,7 +38,11 @@ vi.mock("../src/content/viewer.js", () => ({
 
 import { S } from "../src/content/state.js";
 import { STORE } from "../src/content/platform/storage.js";
-import { updateLauncher, ownsLauncherNode } from "../src/content/overlay/launcher.js";
+import {
+  updateLauncher,
+  ownsLauncherNode,
+  toggleOverlayPopup,
+} from "../src/content/overlay/launcher.js";
 
 function fakeVideo(rect: Partial<DOMRect> = {}) {
   const r = {
@@ -100,6 +107,8 @@ const get = (keys: string[]): Record<string, unknown> => {
 beforeEach(() => {
   host()?.remove();
   h.primary = null;
+  h.primaryReads = 0;
+  S.siteDisabled = false;
   h.drm = false;
   v.format = null;
   v.anchor = null;
@@ -914,5 +923,182 @@ describe("ownsLauncherNode", () => {
     expect(ownsLauncherNode(host())).toBe(true);
     expect(ownsLauncherNode(document.body)).toBe(false);
     expect(ownsLauncherNode(null)).toBe(false);
+  });
+});
+
+describe("toggleOverlayPopup — pages without a video", () => {
+  const backdropEl = () => host()!.shadowRoot!.querySelector("div") as HTMLElement;
+
+  it("opens the popup centered although there is no video to anchor to", () => {
+    toggleOverlayPopup();
+
+    const popup = frameEl();
+    expect(popup).not.toBeNull();
+    expect(popup!.style.display).toBe("block");
+    expect(popup!.src).toMatch(
+      /^chrome-extension:\/\/test\/popup\/popup\.html#vtp-(light|dark)-(light|dark)$/,
+    );
+    expect(popup!.style.left).toBe(window.innerWidth / 2 + "px");
+    expect(popup!.style.top).toBe(window.innerHeight / 2 + "px");
+  });
+
+  it("honours the panel spot saved for the site", () => {
+    S.overlayPanelPos = { fx: 0.4, fy: 0.6 };
+
+    toggleOverlayPopup();
+
+    expect(frameEl()!.style.left).toBe(0.4 * window.innerWidth + "px");
+    expect(frameEl()!.style.top).toBe(0.6 * window.innerHeight + "px");
+  });
+
+  it("never lights the on-video button, not even when the popup closes", () => {
+    S.overlayButton = "always";
+    toggleOverlayPopup();
+    expect(fabShown()).toBe(false);
+
+    fire(backdropEl(), "pointerdown");
+
+    expect(frameEl()!.style.display).toBe("none");
+    expect(fabShown()).toBe(false);
+  });
+
+  it("a second call closes it, and so does a click outside", () => {
+    toggleOverlayPopup();
+    toggleOverlayPopup();
+    expect(frameEl()!.style.display).toBe("none");
+
+    toggleOverlayPopup();
+    expect(frameEl()!.style.display).toBe("block");
+    fire(backdropEl(), "pointerdown");
+    expect(frameEl()!.style.display).toBe("none");
+  });
+
+  it("stays open through the launcher's periodic refresh while the page has no video", () => {
+    toggleOverlayPopup();
+
+    updateLauncher();
+    updateLauncher({ primary: null });
+
+    expect(frameEl()!.style.display).toBe("block");
+  });
+
+  it("stays open when a video appears and goes again", () => {
+    toggleOverlayPopup();
+
+    h.primary = fakeVideo();
+    updateLauncher();
+    h.primary = null;
+    updateLauncher();
+
+    expect(frameEl()!.style.display).toBe("block");
+  });
+
+  it("a popup opened over a video still closes when that video goes away", () => {
+    h.primary = fakeVideo();
+    toggleOverlayPopup();
+    expect(frameEl()!.style.display).toBe("block");
+
+    h.primary = null;
+    updateLauncher();
+
+    expect(frameEl()!.style.display).toBe("none");
+  });
+
+  it("forgets that it was opened without a video once it is closed", () => {
+    toggleOverlayPopup();
+    toggleOverlayPopup(); // closed
+    h.primary = fakeVideo();
+    toggleOverlayPopup(); // reopened, now anchored to the video
+
+    h.primary = null;
+    updateLauncher();
+
+    expect(frameEl()!.style.display).toBe("none");
+  });
+
+  it("follows into the fullscreen element so it stays visible", () => {
+    toggleOverlayPopup();
+    const fsEl = document.createElement("div");
+    document.body.append(fsEl);
+    enterFullscreen(fsEl);
+
+    updateLauncher();
+
+    expect(host()!.parentNode).toBe(fsEl);
+  });
+
+  it("opens a fresh popup after the page detached the launcher host", () => {
+    toggleOverlayPopup();
+    host()!.remove(); // e.g. the page replaced <body>
+
+    toggleOverlayPopup();
+
+    expect(frameEl()!.style.display).toBe("block");
+  });
+});
+
+describe("launcher — blacklisted site", () => {
+  const backdropEl = () => host()!.shadowRoot!.querySelector("div") as HTMLElement;
+
+  it("hides the button even in 'always' mode and the pointer no longer reveals it", async () => {
+    S.overlayButton = "always";
+    h.primary = fakeVideo();
+    updateLauncher();
+    fire(document, "mousemove", 100, 100);
+    await frame();
+    expect(fabShown()).toBe(true);
+
+    S.siteDisabled = true;
+    updateLauncher();
+    expect(fabShown()).toBe(false);
+    fire(document, "mousemove", 100, 100);
+    await frame();
+    expect(fabShown()).toBe(false);
+  });
+
+  it("does not even look for a video", () => {
+    S.siteDisabled = true;
+    h.primary = fakeVideo();
+
+    updateLauncher();
+    toggleOverlayPopup();
+
+    expect(h.primaryReads).toBe(0);
+  });
+
+  it("the toolbar icon still opens the popup, centered, with no button", () => {
+    S.siteDisabled = true;
+    S.overlayButton = "always";
+    h.primary = fakeVideo();
+
+    toggleOverlayPopup();
+
+    const popup = frameEl()!;
+    expect(popup.style.display).toBe("block");
+    expect(popup.style.left).toBe(window.innerWidth / 2 + "px");
+    expect(fabShown()).toBe(false);
+
+    updateLauncher(); // the periodic refresh leaves it up
+    expect(frameEl()!.style.display).toBe("block");
+
+    fire(backdropEl(), "pointerdown");
+    expect(frameEl()!.style.display).toBe("none");
+    expect(fabShown()).toBe(false); // closing doesn't flash the button either
+  });
+
+  it("a popup opened over a video survives the site being switched off from inside it", () => {
+    S.overlayButton = "always";
+    h.primary = fakeVideo();
+    updateLauncher();
+    const fab = fabEl()!;
+    fire(fab, "pointerdown", 580, 158);
+    fire(fab, "pointerup", 580, 158);
+    expect(frameEl()!.style.display).toBe("block");
+
+    S.siteDisabled = true;
+    updateLauncher();
+
+    expect(frameEl()!.style.display).toBe("block");
+    expect(fabShown()).toBe(false);
   });
 });

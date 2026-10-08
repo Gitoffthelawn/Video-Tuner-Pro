@@ -31,7 +31,7 @@ export function updateBadge(): void {
     lastBadge = null;
   }
 
-  const hasVideo = hasVideos();
+  const hasVideo = !S.siteDisabled && hasVideos();
   let payload: IconPayload;
   if (hasVideo) {
     payload = { action: "icon", text: speedLabel(S.currentSpeed), live: onStreamPage() };

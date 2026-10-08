@@ -88,9 +88,9 @@ function primaryForAutoSlow(now: number): HTMLVideoElement | null {
 // One sample tick (scheduled at PACE.SAMPLE_MS by the content entry). Reads the
 // primary analyser's RMS, feeds the meter, and every APPLY_MS nudges the factor.
 export function autoSlowSample(): void {
-  // Master off, or the hold-to-speed key is held (a deliberate temporary speed) →
-  // stay out of the way and hand the rate back.
-  if (!S.autoSlowEnabled || S.holdActive || document.hidden) {
+  // Master off, a blacklisted site, or the hold-to-speed key is held (a deliberate
+  // temporary speed) → stay out of the way and hand the rate back.
+  if (S.siteDisabled || !S.autoSlowEnabled || S.holdActive || document.hidden) {
     release();
     return;
   }

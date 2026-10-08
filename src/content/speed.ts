@@ -26,7 +26,7 @@ const LIVE_REEVAL_THROTTLE_MS = 250;
 let liveReevalTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleLiveReevaluation(): void {
-  if (liveReevalTimer != null) return;
+  if (S.siteDisabled || liveReevalTimer != null) return;
   liveReevalTimer = setTimeout(() => {
     liveReevalTimer = null;
     controlLive();
@@ -164,6 +164,9 @@ function speedWithAutoSlow(base: number): number {
 }
 
 function setMediaRate(media: HTMLMediaElement, baseSpeed = S.currentSpeed): void {
+  // The one place a rate is written for normal playback. The per-element listeners
+  // (play/ratechange…) outlive a switch-off, so applyAll's own gate isn't enough.
+  if (S.siteDisabled) return;
   // The applied rate is the user's speed scaled by the auto-slow factor (1 when
   // the feature is off or no dense speech is detected). defaultPlaybackRate stays
   // at the *intended* speed so a freshly-loaded source isn't seeded at a
@@ -192,6 +195,7 @@ function setNonLiveVideoRate(video: HTMLVideoElement, primaryLive = activePrimar
 // sampler calls this when the factor moves, so a slowdown takes effect without
 // waiting for the next 1s tick.
 export function reapplyPrimaryRate(): void {
+  if (S.siteDisabled) return;
   const v = primaryVideo();
   if (v && !isLive(v)) setNonLiveVideoRate(v);
 }
@@ -226,7 +230,7 @@ function applyToVideo(
   const reapply = () => {
     // On live streams the rate is governed by controlLive's tick; don't fight the
     // player's own latency control here, or the tug-of-war drops frames.
-    if (isLive(video)) return;
+    if (S.siteDisabled || isLive(video)) return;
     setNonLiveVideoRate(video);
   };
   video.addEventListener("play", reapply, listenerOptions());
@@ -259,15 +263,16 @@ function applyToAudio(audio: HTMLAudioElement): void {
 
 // Bridge the desired audio rate to the MAIN-world hook (audio-inject.ts), which
 // owns detached media (e.g. SoundCloud's `new Audio()`) the isolated world can't
-// reach. Present only while the toggle is on; its removal tells the page world to
-// hand those elements back at 1×. Written only on an actual change so the page-
-// world attribute observer doesn't churn on every tick.
+// reach. Present only while the toggle is on and the site isn't blacklisted; its
+// removal tells the page world to hand those elements back at 1×. Written only on
+// an actual change so the page-world attribute observer doesn't churn on every
+// tick.
 const AUDIO_RATE_ATTR = "data-vtp-audiorate";
 function publishAudioRate(): void {
   try {
     const root = document.documentElement;
     if (!root) return;
-    if (S.audioSpeedEnabled) {
+    if (S.audioSpeedEnabled && !S.siteDisabled) {
       const v = String(S.currentSpeed);
       if (root.getAttribute(AUDIO_RATE_ATTR) !== v) root.setAttribute(AUDIO_RATE_ATTR, v);
     } else if (root.hasAttribute(AUDIO_RATE_ATTR)) {
@@ -278,15 +283,23 @@ function publishAudioRate(): void {
   }
 }
 
+function resetRate(media: HTMLMediaElement): void {
+  try {
+    media.defaultPlaybackRate = 1;
+    media.playbackRate = 1;
+  } catch (e) {}
+}
+
 // Reset every <audio> back to normal speed — used when the toggle is turned off.
 export function resetAudios(): void {
-  for (const a of collectAudios()) {
-    try {
-      a.defaultPlaybackRate = 1;
-      a.playbackRate = 1;
-    } catch (e) {}
-  }
-  publishAudioRate(); // toggle is off now — clear the bridge so the page world resets too
+  collectAudios().forEach(resetRate);
+  publishAudioRate(); // toggle (or site) is off now — clear the bridge so the page world resets too
+}
+
+// Hand every <video> and <audio> back at 1× — used when the site is switched off.
+export function resetMedia(): void {
+  collectVideos().forEach(resetRate);
+  resetAudios();
 }
 
 export function applyAll(
@@ -296,6 +309,7 @@ export function applyAll(
     primaryLive?: boolean;
   } = {},
 ): void {
+  if (S.siteDisabled) return;
   const videos = snapshot.videos ?? collectVideos();
   const primary = snapshot.primary !== undefined ? snapshot.primary : primaryVideoFrom(videos);
   const primaryLive =
@@ -309,6 +323,7 @@ export function applyAll(
 }
 
 export function setSpeed(speed: number, persist?: boolean, manual?: boolean): void {
+  if (S.siteDisabled) return;
   // Streams ignore manual speed entirely — they're governed by Live-sync.
   if (manual && activePrimaryIsLive()) return;
   S.currentSpeed = clamp(speed);

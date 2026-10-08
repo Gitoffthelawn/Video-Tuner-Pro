@@ -45,6 +45,7 @@ describe("translationActive", () => {
 describe("compOn", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    S.siteDisabled = false;
   });
 
   it("on when enabled and no translation is playing", () => {
@@ -54,6 +55,12 @@ describe("compOn", () => {
 
   it("off when the user disabled compression", () => {
     S.audioCompEnabled = false;
+    expect(compOn()).toBe(false);
+  });
+
+  it("off on a blacklisted site, even when enabled", () => {
+    S.audioCompEnabled = true;
+    S.siteDisabled = true;
     expect(compOn()).toBe(false);
   });
 

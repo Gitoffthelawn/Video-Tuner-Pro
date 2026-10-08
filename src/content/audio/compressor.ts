@@ -72,6 +72,9 @@ export function applyAudioComp(
     let g: AudioGraph | null | undefined = graphForCurrentSource(v);
     if (!g && !compOn()) g = audioGraphs.get(v);
     if (!g) {
+      // Capturing is one-way (createMediaElementSource can't be undone), so a
+      // blacklisted site never gets a new graph — existing ones just go transparent.
+      if (S.siteDisabled) continue;
       // Capture only what a live feature actually needs: compression routes every
       // video; auto-slow needs just the primary's analyser — and never on a live
       // stream, where it yields to live-sync and doesn't run anyway. With nothing that

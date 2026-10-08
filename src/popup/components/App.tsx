@@ -1,7 +1,7 @@
 // Popup root: resolve the active tab, wire the per-card hooks, drive the canvas
 // meters, and render the cards (with the first-open walkthrough on top).
 import { useCallback, useEffect, useState } from "react";
-import { useActiveTab, useTabMessaging } from "../hooks/tab.js";
+import { useActiveTab, useTabMessaging, type ActiveTab } from "../hooks/tab.js";
 import { useSpeed } from "../hooks/useSpeed.js";
 import { useLiveSync } from "../hooks/useLiveSync.js";
 import { useAutoSlow } from "../hooks/useAutoSlow.js";
@@ -10,6 +10,7 @@ import { useViewerFit } from "../hooks/useViewerFit.js";
 import { useAudioCompressor } from "../hooks/useAudioCompressor.js";
 import { useGraphs } from "../hooks/useGraphs.js";
 import { useStored } from "../hooks/useStored.js";
+import { useSiteBlacklist } from "../hooks/useSiteBlacklist.js";
 import { STORE } from "../platform/storage.js";
 import { msg } from "../i18n.js";
 import { GlassBackdrop } from "../../ui/GlassBackdrop.js";
@@ -21,6 +22,7 @@ import {
   GLASS_OPACITY_KEY,
 } from "../../shared/glass.js";
 import { Header } from "./Header.js";
+import { SiteToggle } from "./SiteToggle.js";
 import { SpeedCard } from "./SpeedCard.js";
 import { LiveSyncCard } from "./LiveSyncCard.js";
 import { ViewerAutoControl } from "./ViewerAutoControl.js";
@@ -30,6 +32,27 @@ import { GuideTour } from "./GuideTour.js";
 
 export function App() {
   const tab = useActiveTab();
+  const site = useSiteBlacklist(tab?.domain ?? "");
+  useEffect(() => ensureGlassFilter(document), []);
+  // Subscribed so a glass-opacity change on the options page reflows the open
+  // popup (the overlay especially) live, not only on the next open.
+  useStored([GLASS_OPACITY_KEY], (r) =>
+    applyGlassOpacity(document.documentElement, clampGlassOpacity(r[GLASS_OPACITY_KEY])),
+  );
+
+  // A disabled site unmounts the cards so their hooks stop messaging and polling
+  // the dormant content script; the site card then is the whole popup.
+  return (
+    <>
+      <GlassBackdrop />
+      <Header />
+      <SiteToggle domain={tab?.domain ?? ""} rule={site.rule} onChange={site.setDisabled} />
+      {site.rule === null && <PopupCards tab={tab} />}
+    </>
+  );
+}
+
+function PopupCards({ tab }: { tab: ActiveTab | null }) {
   const send = useTabMessaging(tab?.tabId ?? null);
   const speed = useSpeed(tab, send);
   const sync = useLiveSync(tab, send);
@@ -40,12 +63,6 @@ export function App() {
   const [translating, setTranslating] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState<string | null>(null);
   useGraphs(tab?.tabId ?? null, setTranslating, setAudioBlocked);
-  useEffect(() => ensureGlassFilter(document), []);
-  // Subscribed so a glass-opacity change on the options page reflows the open
-  // popup (the overlay especially) live, not only on the next open.
-  useStored([GLASS_OPACITY_KEY], (r) =>
-    applyGlassOpacity(document.documentElement, clampGlassOpacity(r[GLASS_OPACITY_KEY])),
-  );
 
   // First-open walkthrough: show it once, the first time the popup opens, then
   // remember it's been seen.
@@ -83,8 +100,6 @@ export function App() {
 
   return (
     <>
-      <GlassBackdrop />
-      <Header />
       <div className="popup-grid">
         <div className="group-label">
           <span>{msg("groupVideo") || "Video"}</span>

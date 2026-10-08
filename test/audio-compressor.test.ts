@@ -207,6 +207,7 @@ describe("applyAudioComp routing decisions", () => {
     m.routable = true;
     m.stream = false;
     S.autoSlowEnabled = false;
+    S.siteDisabled = false;
   });
 
   it("OFF (both audio features off): captures nothing — leaves the page's audio alone", () => {
@@ -234,6 +235,41 @@ describe("applyAudioComp routing decisions", () => {
     expect(res).toEqual({ engaged: 0, skipped: 0, reason: null });
     expect(m.collectVideos).not.toHaveBeenCalled();
     expect(m.primaryVideo).not.toHaveBeenCalled();
+    expect(m.setupGraph).not.toHaveBeenCalled();
+  });
+
+  it("blacklisted site: captures nothing, even with compression and auto-slow on", () => {
+    S.siteDisabled = true;
+    m.compOn = false; // what translation.ts compOn() reports there
+    S.audioCompEnabled = true;
+    S.autoSlowEnabled = true;
+    const primary = { id: "p" } as unknown as HTMLVideoElement;
+    const other = { id: "o" } as unknown as HTMLVideoElement;
+    m.primary = primary;
+    m.list = [other, primary];
+    m.setupGraph.mockImplementation(() => makeGraph());
+
+    const res = applyAudioComp();
+
+    expect(res.engaged).toBe(0);
+    expect(m.setupGraph).not.toHaveBeenCalled();
+  });
+
+  it("blacklisted site: a graph captured earlier goes transparent instead of being left on", () => {
+    S.siteDisabled = true;
+    m.compOn = false;
+    S.audioCompEnabled = true;
+    const v = {} as HTMLVideoElement;
+    const g = makeGraph();
+    m.graphs.set(v, g);
+    m.list = [v];
+    m.primary = v;
+
+    const res = applyAudioComp();
+
+    expect(res.engaged).toBe(1);
+    expect(target(g.comp.ratio)).toBe(1);
+    expect(target(g.gain.gain)).toBe(1);
     expect(m.setupGraph).not.toHaveBeenCalled();
   });
 

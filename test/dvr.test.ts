@@ -238,3 +238,65 @@ describe("YouTube DVR (scrubbed back from a live stream)", () => {
     expect(onStreamPage()).toBe(true);
   });
 });
+
+describe("source swap on a generic live stream (Kick quality change)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("location", { hostname: "kick.com", pathname: "/streamer", search: "" });
+    document.documentElement.removeAttribute("data-vtp-live");
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  function unboundedLive(): HTMLVideoElement {
+    const video = setSeekable(setBadge(false), 0, 1073741824);
+    Object.defineProperty(video, "duration", { value: Infinity, configurable: true });
+    return video;
+  }
+
+  it("a reset to 0 followed by playback resuming ahead stays live", () => {
+    const video = unboundedLive();
+    trackDvr(setTime(video, 8.5));
+    trackDvr(setTime(video, 0)); // the player drops the position while swapping sources
+    expect(isLive(video)).toBe(true);
+
+    vi.advanceTimersByTime(700);
+    trackDvr(setTime(video, 10)); // new rendition starts further along
+    vi.advanceTimersByTime(5000);
+    trackDvr(setTime(video, 14));
+
+    expect(isLive(video)).toBe(true);
+    expect(onStreamPage()).toBe(true);
+  });
+
+  it("a reset to the start that stays behind becomes a scrub back", () => {
+    const video = unboundedLive();
+    Object.defineProperty(video, "readyState", { value: 4, configurable: true });
+    trackDvr(setTime(video, 600));
+    trackDvr(setTime(video, 0));
+    expect(isLive(video)).toBe(true);
+
+    vi.advanceTimersByTime(3000);
+    trackDvr(setTime(video, 3));
+
+    expect(isLive(video)).toBe(false);
+  });
+
+  it("a slow source swap still loading past the window is not a scrub back", () => {
+    const video = unboundedLive();
+    Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+    trackDvr(setTime(video, 8.5));
+    trackDvr(setTime(video, 0));
+
+    vi.advanceTimersByTime(4000);
+    trackDvr(setTime(video, 0));
+    expect(isLive(video)).toBe(true);
+
+    vi.advanceTimersByTime(500);
+    trackDvr(setTime(video, 10));
+    expect(isLive(video)).toBe(true);
+  });
+});

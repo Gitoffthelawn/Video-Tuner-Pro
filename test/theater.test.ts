@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { applySuperTheater } from "../src/content/theater.js";
+import { S } from "../src/content/state.js";
 
 const ATTR = "vtp-super-theater";
 
 afterEach(() => {
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute(ATTR);
+  S.siteDisabled = false;
 });
 
 describe("applySuperTheater", () => {
@@ -26,6 +28,17 @@ describe("applySuperTheater", () => {
   it("is a no-op off YouTube", () => {
     vi.stubGlobal("location", { hostname: "www.twitch.tv" });
     applySuperTheater(true);
+    expect(document.documentElement.hasAttribute(ATTR)).toBe(false);
+  });
+
+  it("never applies on a blacklisted site, and drops a layout applied before", () => {
+    vi.stubGlobal("location", { hostname: "www.youtube.com" });
+    applySuperTheater(true);
+    expect(document.documentElement.hasAttribute(ATTR)).toBe(true);
+
+    S.siteDisabled = true;
+    applySuperTheater(true);
+
     expect(document.documentElement.hasAttribute(ATTR)).toBe(false);
   });
 

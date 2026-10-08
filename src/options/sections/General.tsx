@@ -1,11 +1,13 @@
-// General card: theme (applies live) + glass opacity, language (saves + reloads),
-// and the on-video button mode. Also defines the JSON Backup export/import control
-// (exported), which the Sync section renders as a row under Data & sync.
-import { useEffect, useRef, useState } from "react";
-import { STORE } from "../../shared/store.js";
+// General card: theme (applies live) + glass opacity, language (saves + reloads), the
+// on-video button mode and the sites the extension stays off on. Also defines the JSON
+// Backup export/import control (exported), which the Sync section renders as a row
+// under Data & sync.
+import { useCallback, useEffect, useRef, useState } from "react";
+import { STORE, subscribe } from "../../shared/store.js";
 import { THEMES, type Theme, setTheme } from "../../shared/theme.js";
 import { LOCALES, LOCALE_NAMES, getLang, setLang, type Lang } from "../../shared/i18n-config.js";
 import { SYNC_MASTER_KEY, SYNC_META_KEY } from "../../shared/sync-config.js";
+import { SITE_BLACKLIST_KEY, normalizeSiteList } from "../../shared/site-blacklist.js";
 import { msg } from "../../popup/i18n.js";
 import { Group } from "../Group.js";
 import { Button } from "../../ui/Button.js";
@@ -119,6 +121,49 @@ function SponsorSwitch() {
       checked={on}
       onChange={toggle}
       ariaLabel={msg("optSponsorLabel") || "SponsorBlock markers"}
+    />
+  );
+}
+
+// One site per line (commas and spaces work too). Saved on blur, normalized, and the
+// field then shows what was actually stored — "https://www.Example.com/x" → "example.com".
+function SiteBlacklist() {
+  const [text, setText] = useState("");
+  const field = useRef<HTMLTextAreaElement>(null);
+  const saved = useRef("");
+  const load = useCallback(() => {
+    STORE.get([SITE_BLACKLIST_KEY], (r) => {
+      saved.current = normalizeSiteList(r[SITE_BLACKLIST_KEY]).join("\n");
+      // A field being typed in is left alone — it re-syncs once it loses focus.
+      if (document.activeElement !== field.current) setText(saved.current);
+    });
+  }, []);
+  useEffect(() => {
+    load();
+    return subscribe([SITE_BLACKLIST_KEY], load);
+  }, [load]);
+  const commit = (value: string) => {
+    const list = normalizeSiteList(value.split(/[\s,;]+/));
+    const joined = list.join("\n");
+    setText(joined);
+    if (joined === saved.current) return;
+    saved.current = joined;
+    STORE.set({ [SITE_BLACKLIST_KEY]: list }, (ok) => {
+      if (ok === false) load();
+    });
+  };
+  return (
+    <textarea
+      ref={field}
+      id="siteBlacklist"
+      className="opt-textarea"
+      rows={4}
+      spellCheck={false}
+      placeholder="example.com"
+      aria-label={msg("optSitesLabel") || "Disabled sites"}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={(e) => commit(e.currentTarget.value)}
     />
   );
 }
@@ -322,6 +367,13 @@ export function General() {
           <span className="opt-field-desc">{msg("optSponsorHint")}</span>
         </span>
         <SponsorSwitch />
+      </div>
+      <div className="opt-field opt-field-block">
+        <span className="opt-field-text">
+          <span className="opt-field-label">{msg("optSitesLabel") || "Disabled sites"}</span>
+          <span className="opt-field-desc">{msg("optSitesHint")}</span>
+        </span>
+        <SiteBlacklist />
       </div>
     </Group>
   );
